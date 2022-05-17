@@ -28,4 +28,6 @@
 
 * [A brief introduction to zksync](https://twitter.com/LuozhuZhang/status/1521124870385405953?s=20&t=KHioBSf6VWg4KJ6bcKirRw)
 
-* [I love zkp, zkevm and all zk-applications](https://twitter.com/LuozhuZhang/status/1522327249466273792?s=20&t=KHioBSf6VWg4KJ6bcKirRw)
+* [I love zkps](https://twitter.com/LuozhuZhang/status/1522327249466273792?s=20&t=KHioBSf6VWg4KJ6bcKirRw)
+
+* [zk-snark and proof system resources](https://twitter.com/LuozhuZhang/status/1526463026437640192?s=20&t=gyhiYR7t_dpuPmK6T0g6cQ)
