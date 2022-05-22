@@ -1,5 +1,5 @@
 <div align="center">
-  <a href="https://en.wikipedia.org/wiki/Richard_Feynman">
+  <a href="https://en.wikipedia.org/wiki/Decentralization">
     <img alt="logo" src="https://user-images.githubusercontent.com/70309026/168767630-2d66740b-375e-4c00-9836-22724f42012e.png" >
   </a>
   <p align="center">
