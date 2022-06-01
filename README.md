@@ -33,3 +33,5 @@
 * [zk-snark and proof system resources](https://twitter.com/LuozhuZhang/status/1526463026437640192?s=20&t=gyhiYR7t_dpuPmK6T0g6cQ)
 
 * [PSE = Appliedzkp](https://twitter.com/LuozhuZhang/status/1527669377717268481?s=20&t=EWcIhJuz8Bay54S0QGXtig)
+
+* [zkp history](https://twitter.com/LuozhuZhang/status/1530984087061929984?s=20&t=fjH-1hTw1PYwF84zmkaETw)
