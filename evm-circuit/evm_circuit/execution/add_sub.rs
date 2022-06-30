@@ -50,6 +50,8 @@ impl<F: Field> ExecutionGadget<F> for AddSubGadget<F> {
 
       // ADD: Pop a and b from the stack, push c on the stack
       // SUB: Pop c and b from the stack, push a on the stack
+      // * POP两次，PUSH一次
+      // * 这里的cb是constraint builder，主要在evm_circuit/util/constraint_builder.rs文件下
       cb.stack_pop(select::expr(is_sub.expr().0, c.expr(), a.expr()));
       cb.stack_pop(b.expr());
       cb.stack_push(select::expr(is_sub.expr().0, a.expr(), c.expr()));
