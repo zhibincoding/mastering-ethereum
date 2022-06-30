@@ -186,7 +186,7 @@ pub enum BytecodeFieldTag {
     Padding,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, EnumIter)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TxLogFieldTag {
     Address = 1,
     Topic,
@@ -251,6 +251,7 @@ pub(crate) enum Table {
     Byte,
 }
 
+// 这里有六个主要的table，comments分别说明了他们的作用
 #[derive(Clone, Debug)]
 pub(crate) enum Lookup<F> {
     /// Lookup to fixed table, which contains serveral pre-built tables such as
@@ -276,6 +277,10 @@ pub(crate) enum Lookup<F> {
     /// Lookup to read-write table, which contains read-write access records of
     /// time-aware data.
     Rw {
+        ///
+        /// | counter | is_write | tag | values |
+        /// 
+
         /// Counter for how much read-write have been done, which stands for
         /// the sequential timestamp.
         counter: Expression<F>,
