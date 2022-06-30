@@ -8,6 +8,7 @@ pub mod param;
 mod step;
 pub(crate) mod util;
 
+// 这里面定义了很多tables
 pub mod table;
 pub mod witness;
 
@@ -19,17 +20,21 @@ use witness::Block;
 
 /// EvmCircuit implements verification of execution trace of a block.
 #[derive(Clone, Debug)]
+// 这里定义了用到的tables和columns
 pub struct EvmCircuit<F> {
     fixed_table: [Column<Fixed>; 4],
     byte_table: [Column<Fixed>; 1],
     execution: Box<ExecutionConfig<F>>,
 }
 
+// 可以理解为之前的Chip
 impl<F: Field> EvmCircuit<F> {
     /// Configure EvmCircuit
     pub fn configure(
         meta: &mut ConstraintSystem<F>,
+        // 这个倒不清楚是什么
         power_of_randomness: [Expression<F>; 31],
+        // 最主要的四个table
         tx_table: &dyn LookupTable<F>,
         rw_table: &dyn LookupTable<F>,
         bytecode_table: &dyn LookupTable<F>,
@@ -38,9 +43,12 @@ impl<F: Field> EvmCircuit<F> {
         let fixed_table = [(); 4].map(|_| meta.fixed_column());
         let byte_table = [(); 1].map(|_| meta.fixed_column());
 
+        // 这里直接定义了ExecutionConfig，所有execution的约束都传过来了，可以对每个tables都施加约束
+        // * 我们在EVM circuit的文件里只能看到一些lookup table，但是这些table的约束都由这里的execution来完成
         let execution = Box::new(ExecutionConfig::configure(
             meta,
             power_of_randomness,
+            // 六个tables
             &fixed_table,
             &byte_table,
             tx_table,
@@ -57,6 +65,7 @@ impl<F: Field> EvmCircuit<F> {
     }
 
     /// Load fixed table
+    // 为table assign region（layouter）
     pub fn load_fixed_table(
         &self,
         layouter: &mut impl Layouter<F>,
@@ -144,6 +153,7 @@ pub mod test {
     use crate::{
         evm_circuit::{
             table::FixedTableTag,
+            // 这里可以看一下，作为witness传入了哪些数据
             witness::{Block, BlockContext, Bytecode, RwMap, Transaction},
             EvmCircuit,
         },
@@ -193,7 +203,12 @@ pub mod test {
         evm_circuit: EvmCircuit<F>,
     }
 
+    // Config和Chip
     impl<F: Field> TestCircuitConfig<F> {
+        // 传入witness的数据
+        // Transaction、RwMap、Bytecode、BlockContext
+
+        // load数据，跟之前assign cell差不多
         fn load_txs(
             &self,
             layouter: &mut impl Layouter<F>,
@@ -346,6 +361,7 @@ pub mod test {
         }
     }
 
+    // Circuit的实现
     #[derive(Default)]
     pub struct TestCircuit<F> {
         block: Block<F>,
@@ -360,7 +376,7 @@ pub mod test {
             }
         }
     }
-
+    // 电路实现的主要逻辑
     impl<F: Field> Circuit<F> for TestCircuit<F> {
         type Config = TestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
@@ -369,6 +385,7 @@ pub mod test {
             Self::default()
         }
 
+        // 这个circuit用到的所有约束
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let tx_table = [(); 4].map(|_| meta.advice_column());
             let rw_table = RwTable::construct(meta);
@@ -409,11 +426,14 @@ pub mod test {
             }
         }
 
+        // 把configuration里面要填的数据都填进去
+        // 传回来就是一个填满数据的circuit & table?
         fn synthesize(
             &self,
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
+            // 这里面的load方法都是在上面impl chip中定义的
             config
                 .evm_circuit
                 .load_fixed_table(&mut layouter, self.fixed_table_tags.clone())?;
@@ -442,6 +462,7 @@ pub mod test {
         }
     }
 
+    // 测试这个circuit
     pub fn run_test_circuit<F: Field>(
         block: Block<F>,
         fixed_table_tags: Vec<FixedTableTag>,
@@ -471,7 +492,14 @@ pub mod test {
             .collect();
         let (active_gate_rows, active_lookup_rows) = TestCircuit::get_active_rows(&block);
         let circuit = TestCircuit::<F>::new(block, fixed_table_tags);
+        // 每次测试都会调用这个MockProver，把数据喂给prover
+        // * 这里的MockProver貌似就是zkp后端，在这里的话就是调用Halo2（我们的halo2貌似有一些修改）
+        // * circuit的运行时间和运行效率就受限于这个MockProver
+
+        // * 前端只能做一些工程优化 -> 比如减少table的rows等
+        // * 后端才能做数学上的优化
         let prover = MockProver::<F>::run(k, &circuit, power_of_randomness).unwrap();
+        // Halo2的后端（prover）会自动验证circuit的计算是否正确
         prover.verify_at_rows(active_gate_rows.into_iter(), active_lookup_rows.into_iter())
     }
 
