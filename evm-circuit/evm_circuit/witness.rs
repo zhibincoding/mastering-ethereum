@@ -24,6 +24,8 @@ use itertools::Itertools;
 use sha3::{Digest, Keccak256};
 use std::{collections::HashMap, convert::TryInto, iter};
 
+// 一共八类数据
+// Block、BlockContext、Transaction、Call、ExecStep、Bytecode、RwMap、RwRow
 #[derive(Debug, Default, Clone)]
 pub struct Block<F> {
     /// The randomness for random linear combination
