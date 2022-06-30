@@ -22,6 +22,7 @@ use halo2_proofs::{
 use std::{collections::HashMap, convert::TryInto, iter};
 use strum::IntoEnumIterator;
 
+// execution.rs里面有很多constraint，而且这里面有很多gadgets
 mod add_sub;
 mod addmod;
 mod begin_tx;
@@ -140,6 +141,7 @@ pub(crate) trait ExecutionGadget<F: FieldExt> {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ExecutionConfig<F> {
+    // * 这里应该是主要的common gate
     q_usable: Selector,
     q_step: Column<Advice>,
     num_rows_until_next_step: Column<Advice>,
@@ -155,6 +157,7 @@ pub(crate) struct ExecutionConfig<F> {
     copy_to_memory_gadget: CopyToMemoryGadget<F>,
     end_block_gadget: EndBlockGadget<F>,
     end_tx_gadget: EndTxGadget<F>,
+    // * 这里面就是各种opcode的gate
     // opcode gadgets
     add_sub_gadget: AddSubGadget<F>,
     addmod_gadget: AddModGadget<F>,
@@ -205,6 +208,8 @@ pub(crate) struct ExecutionConfig<F> {
     error_oog_static_memory_gadget: ErrorOOGStaticMemoryGadget<F>,
 }
 
+// * 这里面有很多execution时候用到的gadgets
+// * 主要用来做check和约束
 impl<F: Field> ExecutionConfig<F> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn configure(
@@ -228,6 +233,8 @@ impl<F: Field> ExecutionConfig<F> {
         let step_curr = Step::new(meta, advices, 0);
         let mut height_map = HashMap::new();
 
+        // * 这两个貌似都是common的，所有execution都要满足的性质
+        // * common constraint
         meta.create_gate("Constrain execution state", |meta| {
             let q_usable = meta.query_selector(q_usable);
             let q_step = meta.query_advice(q_step, Rotation::cur());
