@@ -1,16 +1,32 @@
 use ff::Field;
 use group::Curve;
 
+// 访问父模块的私有功能，所以这里的argument、pk、vk都会调用这个keygen.rs
 use super::{Argument, ProvingKey, VerifyingKey};
+// 绝对路径引入模块
 use crate::{
+    // arithmetic主要就是一些common的工具（struct、trait等等）
+    // for group, field and polynomial arithmetic
+    // 1）CurveAffine(trait): This trait is the affine counterpart to Curve and is used for serialization, storage in memory, and inspection of x and y coordinates
+    // affine curarure: https://en.wikipedia.org/wiki/Affine_curvature
+    // 2）FieldExt(trait): 一些处理finite field上elements的common interface
     arithmetic::{CurveAffine, FieldExt},
+    // 这个库是Plonk的实现，但是pse把IPA换成了KZG（可能因为暂时不需要递归证明，减少overhead等原因）
+    // 1）Any(enums): advice、fixed、instance columns
+    // 2）Column(struct) -> 传入index和type，暂不清楚更具体的作用
+    // 3）Error -> proving 或者 circuit synthesis的时候可能会出现的错误
     plonk::{Any, Column, Error},
+    // poly相关的各种工具 -> Contains utilities for performing arithmetic over univariate polynomials in various forms, 
+    // including computing commitments to them and provably opening the committed polynomials at arbitrary points
+    // 1）commitment(module) -> Halo2用的polynomial commitment scheme，PSE换回KZG的时候，估计操作的就是这个模块
+    // Build(struct) -> Wrapper type around a blinding factor
+    // Params(struct) -> Polynomial commitment scheme的public input
+    // 2）EvaluationDomain(struct) -> 顾名思义，主要做polynomial evaluation
     poly::{
         commitment::{Blind, Params},
         EvaluationDomain,
     },
 };
-
 #[derive(Debug)]
 pub(crate) struct Assembly {
     columns: Vec<Column<Any>>,
