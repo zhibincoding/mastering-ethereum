@@ -119,6 +119,10 @@ impl Assembly {
         domain: &EvaluationDomain<C::Scalar>,
         p: &Argument,
     ) -> VerifyingKey<C> {
+        // * 参考 Halo2 protocol
+        // * 这里是prover algorithm中的commit for permutation polynomial（4.）
+        // * Compute [omega^0, omega^1, ..., omega^{params.n - 1}]
+
         // Compute [omega^0, omega^1, ..., omega^{params.n - 1}]
         let mut omega_powers = Vec::with_capacity(params.n as usize);
         {
