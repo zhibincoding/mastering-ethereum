@@ -123,11 +123,20 @@ impl Assembly {
         // * 这里是prover algorithm中的commit for permutation polynomial（4.）
         // * Compute [omega^0, omega^1, ..., omega^{params.n - 1}]
 
-        // Compute [omega^0, omega^1, ..., omega^{params.n - 1}]
+        // 1）在创建vector的时候，指定一个足够大的容量值，尽可能减少内存拷贝(就是避免后面vec不够大)
+        // params是一个struct，里面有k n g等，是polynomial commitment scheme上的东西
+        // usize是指针大小的。在32位计算机上就是u32，在64位计算机上就是u64
         let mut omega_powers = Vec::with_capacity(params.n as usize);
         {
+            // 2）C是CurveAffine，就是作用域相关的一些东西
+            // Scalar可以是field上的某一个element（当前context，也跟vector[向量] space有关）
+            // one：Returns the one element of the field, the multiplicative identity
+            // 总的来说就是返回作用域上的一个数字
             let mut cur = C::Scalar::one();
+            // 3）这里的n应该是params的长度（capacity）
             for _ in 0..params.n {
+                // 4）往vec中push值进去
+                // 数学上应该是拿到omega，然后计算omega^0 ... omega^n-1，最后push到cur里
                 omega_powers.push(cur);
                 cur *= &domain.get_omega();
             }
