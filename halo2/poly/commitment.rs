@@ -18,9 +18,12 @@ use std::ops::{Add, AddAssign, Mul, MulAssign};
 use std::io;
 
 /// These are the prover parameters for the polynomial commitment scheme.
+// * prover的参数，也就是在setup生成pk vk的params，如果泄露有安全风险 ->（伪造pk vk和proof）
+// * 传入到keygen.rs生成vk的params，貌似是prover对polynomial commitment需要的参数
 #[derive(Debug)]
 pub struct Params<C: CurveAffine> {
     pub(crate) k: u32,
+    // 就在这里
     pub(crate) n: u64,
     pub(crate) g: Vec<C>,
     pub(crate) g_lagrange: Vec<C>,
@@ -28,6 +31,7 @@ pub struct Params<C: CurveAffine> {
 }
 
 /// These are the verifier parameters for the polynomial commitment scheme.
+/// 上面是prover的部分，下面是verifier的部分
 #[derive(Debug)]
 pub struct ParamsVerifier<E: Engine> {
     pub(crate) k: u32,
@@ -49,9 +53,13 @@ mod tests {
     }
 }
 
+// * δ = (G, F_p, **G**, H)
+// * Commit(δ, p(X); r)
 impl<C: CurveAffine> Params<C> {
     /// Initializes parameters for the curve, Draws random toxic point inside of the function
     /// MUST NOT be used in production
+    /// 
+    /// 这里的setup是不太安全的，所以不能用于生产环境
     pub fn unsafe_setup<E: Engine>(k: u32) -> Params<E::G1Affine> {
         // TODO: Make this function only available in test mod
         // Largest root of unity exponent of the Engine is `2^E::Scalar::S`, so we can
@@ -64,6 +72,7 @@ impl<C: CurveAffine> Params<C> {
         let s = E::Scalar::random(OsRng);
 
         let mut g_projective = vec![E::G1::group_zero(); n as usize];
+        // parallelize是一个并行化（parallelize）的工具函数，tianyi的优化也用到了这个function，我估计我们的优化也要这么搞
         parallelize(&mut g_projective, |g, start| {
             let mut current_g: E::G1 = g1.into();
             current_g *= s.pow_vartime(&[start as u64]);
@@ -177,8 +186,19 @@ impl<C: CurveAffine> Params<C> {
         let mut k = [0u8; 4];
         reader.read_exact(&mut k[..])?;
         let k = u32::from_le_bytes(k);
+        // a << k 相当于 a.shl(b)
+        // n这个数字后面会变得非常大
         let n = 1 << k;
 
+        // * 之前的代码
+        // let g: Vec<C> = (0..n)
+        //     .map(|_| C::read(&mut reader))
+        //     .collect::<Result<_, _>>()?;
+        // let g_lagrange: Vec<C> = (0..n)
+        //     .map(|_| C::read(&mut reader))
+        //     .collect::<Result<_, _>>()?;
+
+        // !从这里开始
         let load_points_from_file_parallelly = |reader: &mut R| -> io::Result<Vec<C>> {
             let mut points_compressed: Vec<C::Repr> = vec![C::Repr::default(); n];
             for points_compressed in points_compressed.iter_mut() {
@@ -196,6 +216,7 @@ impl<C: CurveAffine> Params<C> {
 
         let g = load_points_from_file_parallelly(&mut reader)?;
         let g_lagrange = load_points_from_file_parallelly(&mut reader)?;
+        // !到这里结束
 
         let mut additional_data_len = [0u8; 4];
         reader.read_exact(&mut additional_data_len[..])?;
@@ -206,6 +227,7 @@ impl<C: CurveAffine> Params<C> {
 
         Ok(Params {
             k,
+            // 多了一个参数n
             n: n as u64,
             g,
             g_lagrange,
