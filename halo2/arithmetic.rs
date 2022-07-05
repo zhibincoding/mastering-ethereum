@@ -333,10 +333,21 @@ where
 
 /// This simple utility function will parallelize an operation that is to be
 /// performed over a mutable slice.
+/// 
+// * 被并行化的数据（operation）可能是可变切片格式（mutable slice）
+// * parallelize(&mut points, |points, chunks| 
+// 这个函数有两个参数，分别是v和f
 pub fn parallelize<T: Send, F: Fn(&mut [T], usize) + Send + Sync + Clone>(v: &mut [T], f: F) {
+    // v就是points，是一堆点？
     let n = v.len();
+    // Returns the number of threads in the current registry
+    // 返回当前注册的threads数量
     let num_threads = multicore::current_num_threads();
+    // 假如我们把n理解成params的数量，这里可以理解成一个thread处理多少个n
+    // 假如n = 100, num_threads = 10, chunk = 10：一个thread处理十个点
     let mut chunk = (n as usize) / num_threads;
+    // n=120, num_threads=10, chunk=12
+    // 如果chunk数量比threads少，chunk=n，那岂不是变成single thread了？
     if chunk < num_threads {
         chunk = n as usize;
     }
