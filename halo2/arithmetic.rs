@@ -337,11 +337,12 @@ where
 // * 被并行化的数据（operation）可能是可变切片格式（mutable slice）
 // * parallelize(&mut points, |points, chunks| 
 // 这个函数有两个参数，分别是v和f
+// 第一个参数好像是一个向量，第二个参数是一个函数
 pub fn parallelize<T: Send, F: Fn(&mut [T], usize) + Send + Sync + Clone>(v: &mut [T], f: F) {
     // v就是points，是一堆点？
     let n = v.len();
     // Returns the number of threads in the current registry
-    // 返回当前注册的threads数量
+    // 返回当前注册的threads数量（确定机器的call，有多少个threads）
     let num_threads = multicore::current_num_threads();
     // 假如我们把n理解成params的数量，这里可以理解成一个thread处理多少个n
     // 假如n = 100, num_threads = 10, chunk = 10：一个thread处理十个点
@@ -349,14 +350,21 @@ pub fn parallelize<T: Send, F: Fn(&mut [T], usize) + Send + Sync + Clone>(v: &mu
     // n=120, num_threads=10, chunk=12
     // 如果chunk数量比threads少，chunk=n，那岂不是变成single thread了？
     if chunk < num_threads {
+        // 每个thread需要处理的长度数量
         chunk = n as usize;
     }
 
+    // 这里的闭包还要研究一下
     multicore::scope(|scope| {
+        // 拿到了thread索引（chunk_num），和thread处理的数据片段（v）
         for (chunk_num, v) in v.chunks_mut(chunk).enumerate() {
+            // 深度拷贝，这样我们就可以用这个函数的功能了，两个参数 -> &mut [T], usize
             let f = f.clone();
+            // 开thread，move可以把ownership转移进来
             scope.spawn(move |_| {
+                // 0（索引） * 12（一个thread中处理的数量）
                 let start = chunk_num * chunk;
+                // 传入v（具体的数据片段），后面累加出的start
                 f(v, start);
             });
         }
