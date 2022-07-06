@@ -180,10 +180,18 @@ impl<C: CurveAffine> Params<C> {
         writer.write_all(&self.additional_data)?;
         Ok(())
     }
+    
+    // * zkp的随机数很有可能来源于计算机硬件（computer buffer）
+    // * 模拟电子运动，创造出物理世界的真随机数，就在buffer的位置吗？存疑
 
     /// Reads params from a buffer.
+    /// 
+    /// 这个函数只有一个参数，就是reader
     pub fn read<R: io::Read>(mut reader: R) -> io::Result<Self> {
+        // 创建了[0, 0, 0, 0]这样的array，而且元素的类型都是u8，刚好符合read_exact的参数类型
         let mut k = [0u8; 4];
+        // reader是什么东西，到底传入什么
+        // reader确定多少个byte才能填满k
         reader.read_exact(&mut k[..])?;
         let k = u32::from_le_bytes(k);
         // a << k 相当于 a.shl(b)
