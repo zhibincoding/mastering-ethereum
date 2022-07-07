@@ -25,6 +25,7 @@ pub struct Params<C: CurveAffine> {
     pub(crate) k: u32,
     // 就在这里
     pub(crate) n: u64,
+    // 这里定义了g和g_l的类型
     pub(crate) g: Vec<C>,
     pub(crate) g_lagrange: Vec<C>,
     pub(crate) additional_data: Vec<u8>,
@@ -180,7 +181,7 @@ impl<C: CurveAffine> Params<C> {
         writer.write_all(&self.additional_data)?;
         Ok(())
     }
-    
+
     // * zkp的随机数很有可能来源于计算机硬件（computer buffer）
     // * 模拟电子运动，创造出物理世界的真随机数，就在buffer的位置吗？存疑
 
@@ -199,6 +200,9 @@ impl<C: CurveAffine> Params<C> {
         let n = 1 << k;
 
         // * 之前的代码
+        // * 主要定义g和g_lagrange（好奇为什么这里的数据完全一致）
+        // * 主要作用就是把0..n的数据都填进去，而且保证是vector（collection）的格式
+
         // let g: Vec<C> = (0..n)
         //     .map(|_| C::read(&mut reader))
         //     .collect::<Result<_, _>>()?;
