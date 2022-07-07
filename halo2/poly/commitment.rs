@@ -211,21 +211,32 @@ impl<C: CurveAffine> Params<C> {
         //     .collect::<Result<_, _>>()?;
 
         // !从这里开始
+        // 这里的reader不出意外应该就是file，里面存了许多的parameters
+        // 输出符合curve作用域的vector
         let load_points_from_file_parallelly = |reader: &mut R| -> io::Result<Vec<C>> {
+            // 创建一个vector -> points_compressed
             let mut points_compressed: Vec<C::Repr> = vec![C::Repr::default(); n];
+            // read_exact从reader里读数据，之后存到points_compressed里
             for points_compressed in points_compressed.iter_mut() {
                 reader.read_exact((*points_compressed).as_mut())?;
             }
 
             let mut points = vec![C::default(); n];
+            // points是一个初始化的vector
+            // chunks是一个thread处理的n数量
             parallelize(&mut points, |points, chunks| {
+                // iter_mut返回一个&mut的迭代器
+                // enumerate返回key-value的pair
                 for (i, point) in points.iter_mut().enumerate() {
                     *point = Option::from(C::from_bytes(&points_compressed[chunks + i])).unwrap();
                 }
             });
+            // 返回的是points
             Ok(points)
         };
 
+        // 传入一个halo2 setup生成的file（里面都是parameters）
+        // 这个函数会把file里面的随机数加载到points里，然后返回给g和g_L
         let g = load_points_from_file_parallelly(&mut reader)?;
         let g_lagrange = load_points_from_file_parallelly(&mut reader)?;
         // !到这里结束
