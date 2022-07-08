@@ -27,15 +27,23 @@ pub use input_state_ref::CircuitInputStateRef;
 use std::collections::HashMap;
 pub use transaction::{Transaction, TransactionContext};
 
+// * geth生成的traces数据 -> 进入bus-mapping加工 -> 作为circuit input的输入
+// * 拿到Block构建相关数据 -> 对于这个Block里面的所有tx，构建tx相关的traces数据 -> BM在这里拿到trace里面的execSetp数据，进一步处理
+// 我很好奇这里的setp是否与trace的相同：https://geth.ethereum.org/docs/rpc/ns-debug#step
+
+// 把这些数据对应处理好之后（生成witness）-> 就可以输入到不同的circuit去了
+// 这里面有一些evm circuit自己定义的数据结构，跟之前的EVM不太一样
+
 /// Builder to generate a complete circuit input from data gathered from a geth
 /// instance. This structure is the centre of the crate and is intended to be
 /// the only entry point to it. The `CircuitInputBuilder` works in several
 /// steps:
 ///
 /// 1. Take a [`eth_types::Block`] to build the circuit input associated with
-/// the block. 2. For each [`eth_types::Transaction`] in the block, take the
-/// [`eth_types::GethExecTrace`] to    build the circuit input associated with
-/// each transaction, and the bus-mapping operations    associated with each
+/// the block. 
+/// 2. For each [`eth_types::Transaction`] in the block, take the
+/// [`eth_types::GethExecTrace`] to build the circuit input associated with
+/// each transaction, and the bus-mapping operations associated with each
 /// `eth_types::GethExecStep`] in the [`eth_types::GethExecTrace`].
 ///
 /// The generated bus-mapping operations are:
@@ -48,8 +56,10 @@ pub use transaction::{Transaction, TransactionContext};
 #[derive(Debug)]
 pub struct CircuitInputBuilder {
     /// StateDB key-value DB
+    /// * 貌似world state就存在这里面
     pub sdb: StateDB,
     /// Map of account codes by code hash
+    /// * 所有的bytecode和codehash等（contract account）
     pub code_db: CodeDB,
     /// Block
     pub block: Block,
