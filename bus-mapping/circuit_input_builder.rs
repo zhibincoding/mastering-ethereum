@@ -53,6 +53,9 @@ pub use transaction::{Transaction, TransactionContext};
 /// [`OpcodeId`](crate::evm::OpcodeId)s used in each `ExecTrace` step so that
 /// the State Proof witnesses are already generated on a structured manner and
 /// ready to be added into the State circuit.
+
+
+// * 大概要输入的一些数据
 #[derive(Debug)]
 pub struct CircuitInputBuilder {
     /// StateDB key-value DB
@@ -75,6 +78,7 @@ impl<'a> CircuitInputBuilder {
             sdb,
             code_db,
             block,
+            // block的一些常量数据
             block_ctx: BlockContext::new(),
         }
     }
@@ -82,6 +86,7 @@ impl<'a> CircuitInputBuilder {
     /// Obtain a mutable reference to the state that the `CircuitInputBuilder`
     /// maintains, contextualized to a particular transaction and a
     /// particular execution step in that transaction.
+    // !这里的contextualized是什么意思？添加context的语境？
     pub fn state_ref(
         &'a mut self,
         tx: &'a mut Transaction,
@@ -116,6 +121,7 @@ impl<'a> CircuitInputBuilder {
             ),
         );
 
+        // * 把一个block里的所有transaction拿出来，形成[`eth_types::Transaction`]
         Transaction::new(call_id, &self.sdb, &mut self.code_db, eth_tx, is_success)
     }
 
@@ -124,6 +130,7 @@ impl<'a> CircuitInputBuilder {
     /// generate the RwCounterEndOfReversion operation in
     /// `gen_associated_ops` we don't know yet which value it will take,
     /// so we put a placeholder; so we do it here after the values are known.
+    // * 貌似会从CallContext中取值，后面填到table里，这里不够clear，还需要check一下
     pub fn set_value_ops_call_context_rwc_eor(&mut self) {
         for oper in self.block.container.call_context.iter_mut() {
             let op = oper.op_mut();
@@ -142,6 +149,7 @@ impl<'a> CircuitInputBuilder {
 
     /// Handle a block by handling each transaction to generate all the
     /// associated operations.
+    // * 处理一个block
     pub fn handle_block(
         &mut self,
         eth_block: &EthBlock,
@@ -167,6 +175,8 @@ impl<'a> CircuitInputBuilder {
     /// `self.block.container`, and each step stores the
     /// [`OperationRef`](crate::exec_trace::OperationRef) to each of the
     /// generated operations.
+
+    // * 处理transaction相关对应的数据
     fn handle_tx(
         &mut self,
         eth_tx: &eth_types::Transaction,
