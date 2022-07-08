@@ -265,6 +265,7 @@ impl<P: JsonRpcClient> BuilderClient<P> {
     }
 
     /// Step 1. Query geth for Block, Txs and TxExecTraces
+    // * 从block里拿到所有的tx和traces数据
     pub async fn get_block(
         &self,
         block_num: u64,
@@ -275,6 +276,8 @@ impl<P: JsonRpcClient> BuilderClient<P> {
     }
 
     /// Step 2. Get State Accesses from TxExecTraces
+    // * state accesses在这里怎么理解？
+    // * 确定读写关系？开始操作state？
     pub fn get_state_accesses(
         &self,
         eth_block: &EthBlock,
@@ -298,6 +301,8 @@ impl<P: JsonRpcClient> BuilderClient<P> {
 
     /// Step 3. Query geth for all accounts, storage keys, and codes from
     /// Accesses
+    // * get proof 和 get code
+    // * code应该还是bytecode，不太清楚这里的proof是什么 
     pub async fn get_state(
         &self,
         block_num: u64,
