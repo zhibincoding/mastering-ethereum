@@ -68,19 +68,47 @@ impl<C: CurveAffine> Params<C> {
         assert!(k <= E::Scalar::S);
         let n: u64 = 1 << k;
 
+        // * 原本是一个顺序实现，每个位置都是一个幂次
         // Calculate g = [G1, [s] G1, [s^2] G1, ..., [s^(n-1)] G1] in parallel.
         let g1 = <E::G1Affine as PrimeCurveAffine>::generator();
         let s = E::Scalar::random(OsRng);
 
+
+        // !原来的实现
+        // let mut g_projective: Vec<E::G1> = Vec::with_capacity(n as usize);
+        // let g1 = <E::G1Affine as PrimeCurveAffine>::generator();
+        // g_projective.push(g1.into());
+        // // g = [G1, [s] G1, [s^2] G1, ..., [s^(n-1)] G1]
+        // for i in 1..(n as usize) {
+        //     // 这里的s在上面定义，这个很长的字段里面每个元素都 * s
+        //     g_projective.push(g_projective[i - 1] * s);
+        // }
+
+
+
         let mut g_projective = vec![E::G1::group_zero(); n as usize];
-        // parallelize是一个并行化（parallelize）的工具函数，tianyi的优化也用到了这个function，我估计我们的优化也要这么搞
+        // * 这是tianyi的另一个优化，把很长的g_projective，拆分成了好几段
+        // * 每一段都调用后面的f函数 -> 所以我们拆没有问题，调用的函数有点问题
+
+        // * 这里应该是 f:|g,start|，但是我们的插件没表示出来
+        // * g是字段，start是offset
         parallelize(&mut g_projective, |g, start| {
             let mut current_g: E::G1 = g1.into();
+            // * start是这个字段的index
+            // * 这里计算 G1, [s]G1, [s^2]G1 ...
+            // pow_vartime应该就是进行幂运算，start从0到n-1 [s^0] [s^1] [s^2] ...
+            // current_g *=再自乘g，就是 G1, [s]G1, [s^2]G1 ...
             current_g *= s.pow_vartime(&[start as u64]);
+            // * iter_mut相当于得到一个指针（?什么意思），可以修改g的值
             for g in g.iter_mut() {
+                // 让第一个g变成current_g
                 *g = current_g;
+                // 自乘 current_g = current_g * s，这里的s是什么
                 current_g *= s;
             }
+            // * 第二次循环，g被赋值为一个乘过s的current_g
+            // * [current_g, current_g*s, (current_g*s)*s ]
+            // * [G, [s]G, [s^2]G]
         });
 
         let g = {
