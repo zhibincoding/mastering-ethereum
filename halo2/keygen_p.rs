@@ -3,7 +3,7 @@ use group::Curve;
 
 use super::{Argument, ProvingKey, VerifyingKey};
 use crate::{
-    arithmetic::{CurveAffine, FieldExt},
+    arithmetic::{CurveAffine, FieldExt, parallelize},
     plonk::{Any, Column, Error},
     poly::{
         commitment::{Blind, Params},
@@ -104,13 +104,25 @@ impl Assembly {
         p: &Argument,
     ) -> VerifyingKey<C> {
         // Compute [omega^0, omega^1, ..., omega^{params.n - 1}]
+        // 一个足够长的数组
         let mut omega_powers = Vec::with_capacity(params.n as usize);
         {
-            let mut cur = C::Scalar::one();
+            // 初始化了一个cur
+            let mut cur = C::Scalar::one(); // -> 1?
+
+            // 第一次循环push cur (1)，然后计算cur = 1 * omega -> omega^1
+            // 第二次循环push上一个cur (omega^1)，计算 omega^1 * omega = omega^2
+            // 第三次循环push上一个cur（omega^2），计算 omega^2 * omega = omega^3
+            // ...
+            // ...
+            // n-1次
             for _ in 0..params.n {
                 omega_powers.push(cur);
+                // get_omega -> G::Scalar
                 cur *= &domain.get_omega();
             }
+
+            // * [1, omega^1, omega^2, omega^3, .... ....]
         }
 
         // Compute [omega_powers * \delta^0, omega_powers * \delta^1, ..., omega_powers * \delta^m]
