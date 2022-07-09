@@ -106,9 +106,15 @@ impl<C: CurveAffine> Params<C> {
                 // 自乘 current_g = current_g * s，这里的s是什么
                 current_g *= s;
             }
-            // * 第二次循环，g被赋值为一个乘过s的current_g
+            // * 第一个循环，g被赋值为current_g，再自乘一下（不赋值）current_g*s
+            // * [current_g]
+            // * 第二次循环，g被赋值为一个乘过s的current_g*s，再自乘一下（不赋值，current_g*s*s）
+            // * [current_g, current_g*s ]
+            // * 第三次循环，g被赋值为上一个自乘的(current_g*s)*s，自己再自乘一下（不赋值，current_g*s*s*s）
             // * [current_g, current_g*s, (current_g*s)*s ]
-            // * [G, [s]G, [s^2]G]
+            // *
+            // * [G, [s]G, [s^2]G ] ...
+            // * [G, [s]G, [s^2]G ... [s^(n-1)]G ]
         });
 
         let g = {
