@@ -233,3 +233,35 @@ impl Assembly {
         }
     }
 }
+
+#[test]
+fn run_new_parallelize() {
+    // * 知道a和b，把它们element位的加起来
+    // * 我感觉要写一个新的数组c，然后每一位(0 1 2 3)都把a和b对应位的数字加起来
+
+    let mut a:Vec<i32> = (0..80).collect();
+    let b:Vec<i32> = (0..80).collect();
+    let mut c = vec![0; 80];
+
+    // 0 - 10, start = 0
+    // 10 - 20, satrt = 10
+    // ...
+    // 70 - 80, start = 70
+
+    parallelize(&mut c, |c, start| {    // ! 改到80的时候，才出现多线程：0 10 20 .. 70
+        // println!("{}", start); // 0 10 20 .. 70
+        // @ 每次跑完一段thread之后，都重新赋值a和b（因为c的长度只有10）
+
+        for i in 0..c.len() { // @ 这里的c已经是子数组了，所以每一段只有10的长度
+            // ! 第一个thread（0-10）、第二个thread（10-20）
+            // ! i都从0到10
+
+            // ! 第一个thread操作的是a[0..10]、b[0..10]
+            // ! 第二个thread操作的是a[10..20]、b[10..20]
+            c[i] = a[start + i] + b[start + i];
+        }
+    });
+
+    println!("{:?}", c);
+
+}
