@@ -252,7 +252,7 @@ fn run_new_parallelize() {
         // println!("{}", start); // 0 10 20 .. 70
         // @ 每次跑完一段thread之后，都重新赋值a和b（因为c的长度只有10）
 
-        for c in c.iter_mut() { // @ 这里的c已经是子数组了，所以每一段只有10的长度
+        for i in 0..c.len() { // @ 这里的c已经是子数组了，所以每一段只有10的长度
             // ! 第一个thread（0-10）、第二个thread（10-20）
             // ! i都从0到10
 
@@ -262,7 +262,7 @@ fn run_new_parallelize() {
         }
     });
 
-    // println!("{:?}", c);
+    println!("{:?}", c);
 
 }
 
