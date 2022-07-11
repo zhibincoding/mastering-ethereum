@@ -140,6 +140,25 @@ impl Assembly {
                 omega_powers.push(cur);
                 cur *= &domain.get_omega();
             }
+
+            // ! 最终结果 👇
+            // 假设0-25，start=25
+            // 25-50，start=50
+            // 这样的一组threads
+
+            // * 初始化的omega_powers是空的，是（0），with_capacity只是给了一个足够大的容量而已
+            parallelize(&mut omega_powers, |o, start|{
+                // 这里做了一个优化，因为satrt从0开始，所以不再需要 C::Scalar::one()
+                // domain.get_omega()拿到omega，第一个循环的时候就是omega^0，第二个循环的时候就是omega^25
+                let mut cur = domain.get_omega().pow_vartime(&[start as u64]);
+                for v in o.iter_mut() {
+                    // 这里操作*v，就是操作o里面的值
+                    *v = cur;
+                    // 自乘 -> 循环
+                    cur *= &domain.get_omega();
+                }
+            })
+            // ! 最终结果 👆
         }
 
         // Compute [omega_powers * \delta^0, omega_powers * \delta^1, ..., omega_powers * \delta^m]
@@ -184,11 +203,13 @@ impl Assembly {
         // Compute [omega^0, omega^1, ..., omega^{params.n - 1}]
         let mut omega_powers = Vec::with_capacity(params.n as usize);
         {
-            let mut cur = C::Scalar::one();
-            for _ in 0..params.n {
-                omega_powers.push(cur);
-                cur *= &domain.get_omega();
-            }
+            parallelize(&mut omega_powers, |o, start| {
+                let mut cur = domain.get_omega().pow_vartime(&[start as u64]);
+                for v in o.iter_mut() {
+                    *v = cur;
+                    cur *= &domain.get_omega();
+                }
+            });
         }
 
         // Compute [omega_powers * \delta^0, omega_powers * \delta^1, ..., omega_powers * \delta^m]
