@@ -10,7 +10,7 @@ use crate::{
     // 1）CurveAffine(trait): This trait is the affine counterpart to Curve and is used for serialization, storage in memory, and inspection of x and y coordinates
     // affine curarure: https://en.wikipedia.org/wiki/Affine_curvature
     // 2）FieldExt(trait): 一些处理finite field上elements的common interface
-    arithmetic::{CurveAffine, FieldExt},
+    arithmetic::{CurveAffine, FieldExt, parallelize},
     // 这个库是Plonk的实现，但是pse把IPA换成了KZG（可能因为暂时不需要递归证明，减少overhead等原因）
     // 1）Any(enums): advice、fixed、instance columns
     // 2）Column(struct) -> 传入index和type，暂不清楚更具体的作用
