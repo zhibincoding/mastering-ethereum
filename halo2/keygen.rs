@@ -252,7 +252,7 @@ fn run_new_parallelize() {
         // println!("{}", start); // 0 10 20 .. 70
         // @ 每次跑完一段thread之后，都重新赋值a和b（因为c的长度只有10）
 
-        for i in 0..c.len() { // @ 这里的c已经是子数组了，所以每一段只有10的长度
+        for c in c.iter_mut() { // @ 这里的c已经是子数组了，所以每一段只有10的长度
             // ! 第一个thread（0-10）、第二个thread（10-20）
             // ! i都从0到10
 
@@ -262,6 +262,30 @@ fn run_new_parallelize() {
         }
     });
 
-    println!("{:?}", c);
+    // println!("{:?}", c);
 
+}
+
+#[test]
+fn run_itermut_parallelize() {
+    // * 知道a和b，把它们element位的加起来
+    // * 我感觉要写一个新的数组c，然后每一位(0 1 2 3)都把a和b对应位的数字加起来
+
+    let mut a:Vec<i32> = (0..80).collect();
+    let mut b:Vec<i32> = (0..80).collect();
+    let mut c = vec![0; 80];
+
+    parallelize(&mut c, |c, start| {    // ! 改到80的时候，才出现多线程：0 10 20 .. 70
+        // println!("{}", start); // 0 10 20 .. 70
+        // @ 每次跑完一段thread之后，都重新赋值a和b（因为c的长度只有10）
+
+        for (i, v) in c.iter_mut().enumerate() { // @ 这里的c已经是子数组了，所以每一段只有10的长度
+            // ! 循环c里面的每一个元素
+            // @ 这里要解引用，才能把a和b的值给v
+            // @ 直接操作v就可以，v会把值返回给scope外的c
+            *v = a[start + i] + b[start + i];
+        }
+    });
+
+    println!("{:?}", c);
 }
