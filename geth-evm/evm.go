@@ -1,3 +1,5 @@
+// location: geth/core/vm/evm.go
+
 // Copyright 2014 The go-ethereum Authors
 // This file is part of the go-ethereum library.
 //
@@ -27,20 +29,27 @@ import (
 	"github.com/holiman/uint256"
 )
 
+// * create使用emptyCodeHash，为了防止部署到已经部署了合约的地址
+// * 有意思的是，这玩意跟account abstraction有关系，后面可以研究一下（放这里有点像一个todo）
 // emptyCodeHash is used by create to ensure deployment is disallowed to already
 // deployed contract addresses (relevant after the account abstraction).
 var emptyCodeHash = crypto.Keccak256Hash(nil)
 
+// * 各种transfer的签名函数，以及blockhash
 type (
 	// CanTransferFunc is the signature of a transfer guard function
+	// * transfer guard function（还不知道这是个啥东西）的签名函数
 	CanTransferFunc func(StateDB, common.Address, *big.Int) bool
 	// TransferFunc is the signature of a transfer function
+	// * transfer function的签名函数
 	TransferFunc func(StateDB, common.Address, common.Address, *big.Int)
 	// GetHashFunc returns the n'th block hash in the blockchain
 	// and is used by the BLOCKHASH EVM op code.
+	// * 貌似使用BLOCKHASH这个opcode，并且会返回对应block的hash
 	GetHashFunc func(uint64) common.Hash
 )
 
+// * precompile -> 预编译，可能是为了节省时间，看看具体是怎么work的（这里也是作为一个工具函数）
 func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 	var precompiles map[common.Address]PrecompiledContract
 	switch {
@@ -57,18 +66,25 @@ func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 	return p, ok
 }
 
+// * BlockContext给EVM提供一些相关信息（在zkevm的witness中也有类似的信息） -> 而且类似于常量，提供以后就不会改变
 // BlockContext provides the EVM with auxiliary information. Once provided
 // it shouldn't be modified.
 type BlockContext struct {
 	// CanTransfer returns whether the account contains
 	// sufficient ether to transfer the value
+	// * CanTransferFunc返回一个bool
+	// * 表示一个账户是否有足够的ether来转账
 	CanTransfer CanTransferFunc
 	// Transfer transfers ether from one account to the other
+	// * TransferFunc是一个签名函数，用来在A -> B的时候签名
 	Transfer TransferFunc
 	// GetHash returns the hash corresponding to n
+	// * 拿到对应block的一个hash
 	GetHash GetHashFunc
 
 	// Block information
+	// * 一些常量信息，我们要多关注gas相关的信息
+	// * 其中GasLimit、BaseFee、Random并不是很了解
 	Coinbase    common.Address // Provides information for COINBASE
 	GasLimit    uint64         // Provides information for GASLIMIT
 	BlockNumber *big.Int       // Provides information for NUMBER
@@ -78,48 +94,75 @@ type BlockContext struct {
 	Random      *common.Hash   // Provides information for RANDOM
 }
 
+// * TxContext给EVM提供一些tx相关的信息 -> 根据tx的变化，这些信息貌似也可以改变
 // TxContext provides the EVM with information about a transaction.
 // All fields can change between transactions.
 type TxContext struct {
 	// Message information
-	Origin   common.Address // Provides information for ORIGIN
-	GasPrice *big.Int       // Provides information for GASPRICE
+	Origin common.Address // Provides information for ORIGIN
+	// * 所以gasPrice是每笔transaction的？
+	// * gasLimit是一个block可用的？
+	GasPrice *big.Int // Provides information for GASPRICE
 }
 
 // EVM is the Ethereum Virtual Machine base object and provides
 // the necessary tools to run a contract on the given state with
-// the provided context. It should be noted that any error
+// the provided context.（1） It should be noted that any error
 // generated through any of the calls should be considered a
 // revert-state-and-consume-all-gas operation, no checks on
 // specific errors should ever be performed. The interpreter makes
 // sure that any errors generated are to be considered faulty code.
-//
+
+// * 1.EVM通过一个给定的状态（given state）和给定的上下文（provided context）来运行contract的代码
+// * 所以上面的BlockContext和TxContext都是为了让EVM运行contract而给定的context
+
+// * 2.任何调用call而生成的error，都应该被视作“revert-state-and-consume-all-gas”操作 ->
+// * revert state(恢复状态) & consume all gas(消耗gas)，所以理论上应该是要上链的，为什么我们之前的error不上链呢？
+
+// ![issue] * 3.interpreter会保证所有errors都被视为faulty code（这是个什么东西）
+
+// ![issue] * 4.EVM不能被复用，而且不是thread safe的 -> 这里也没搞懂什么意思
+
 // The EVM should never be reused and is not thread safe.
+// * 这里应该就是EVM需要的所有context
 type EVM struct {
 	// Context provides auxiliary blockchain related information
 	Context BlockContext
 	TxContext
 	// StateDB gives access to the underlying state
+	// * 这里应该是就是为了拿到依赖的state，上面是跑EVM必须的context（block和tx）
 	StateDB StateDB
 	// Depth is the current call stack
+	// ![issue] 不太清楚这里的depth -> current call stack是什么东西，不过既然是EVM相关的信息，还是有必要搞懂的
 	depth int
 
 	// chainConfig contains information about the current chain
+	// * 当前chain的信息，Genesis block也需要导入这个（比如chainId什么的）
+	// * 这里面定义了许多字段，貌似有一些历史渊源，不太清楚为什么
 	chainConfig *params.ChainConfig
 	// chain rules contains the chain rules for the current epoch
+	// * 选择不同的epoch，可能是不同的fork版本
 	chainRules params.Rules
 	// virtual machine configuration options used to initialise the
 	// evm.
+	// * 这里是Interpreter里面的config，用来初始化EVM
+	// * Debug、Tracer、NoBaseFee(EIP1559)、EnablePreimageRecording等（设置启动还是关闭）
 	Config Config
 	// global (to this context) ethereum virtual machine
 	// used throughout the execution of the tx.
+	// * EVM的interpreter，可以理解为把solidity -> byte/pc/stack/op等东西，让EVM能够理解并执行
+	// ![issue] 非常重要
 	interpreter *EVMInterpreter
 	// abort is used to abort the EVM calling operations
 	// NOTE: must be set atomically
+	// * abort用来终止call operation
+	// ![issue] 而且被设置为atomically -> 不清楚什么意思
 	abort int32
 	// callGasTemp holds the gas available for the current call. This is needed because the
 	// available gas is calculated in gasCall* according to the 63/64 rule and later
 	// applied in opCall*.
+	// * callGasTemp保存当前call的gas available（可用的gas，或者一个call消耗的gas）
+	// ![issue] 63/64的byte规则，以及opCall*这个东西
 	callGasTemp uint64
 }
 
