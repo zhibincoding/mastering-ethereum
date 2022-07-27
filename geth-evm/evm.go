@@ -168,6 +168,7 @@ type EVM struct {
 
 // NewEVM returns a new EVM. The returned EVM is not thread safe and should
 // only ever be used *once*.
+// * 用来返回一个EVM实例，而且这个实例只能跑一次（也是thread unsafe的）
 func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig *params.ChainConfig, config Config) *EVM {
 	evm := &EVM{
 		Context:     blockCtx,
@@ -177,28 +178,34 @@ func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig
 		chainConfig: chainConfig,
 		chainRules:  chainConfig.Rules(blockCtx.BlockNumber, blockCtx.Random != nil),
 	}
+	// * 而且也创建一个新的EVM interpreter -> 根据每个block吗，还是根据每个transaction（甚至每个call）
+	// * 应该是给外部（执行contract代码的地方调用的）
 	evm.interpreter = NewEVMInterpreter(evm, config)
 	return evm
 }
 
 // Reset resets the EVM with a new transaction context.Reset
 // This is not threadsafe and should only be done very cautiously.
+// * 重置EVM -> 传入新的TxContext和StateDB
 func (evm *EVM) Reset(txCtx TxContext, statedb StateDB) {
 	evm.TxContext = txCtx
 	evm.StateDB = statedb
 }
 
 // Cancel cancels any running EVM operation. This may be called concurrently and
-// it's safe to be called multiple times.
+// it's safe to be called multiple times.、
+// * 取消EVM的操作
 func (evm *EVM) Cancel() {
 	atomic.StoreInt32(&evm.abort, 1)
 }
 
 // Cancelled returns true if Cancel has been called
+// * 检查是否调用了Cancel（取消EVM operation的函数）
 func (evm *EVM) Cancelled() bool {
 	return atomic.LoadInt32(&evm.abort) == 1
 }
 
+// * 返回current interpreter
 // Interpreter returns the current interpreter
 func (evm *EVM) Interpreter() *EVMInterpreter {
 	return evm.interpreter
