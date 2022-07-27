@@ -215,23 +215,40 @@ func (evm *EVM) Interpreter() *EVMInterpreter {
 // parameters. It also handles any necessary value transfer required and takes
 // the necessary steps to create accounts and reverses the state in case of an
 // execution error or failed value transfer.
+
+// * 1.使用input data作为参数，执行某个contract addr相关的代码
+
+// * 2.这个函数可以执行必要的value transfer，以及create accounts
+
+// * 3.如果出现了execution error，或者failed value transfer，可以revert state（需要消耗gas吗？这个怎么上链）
 func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
 	// Fail if we're trying to execute above the call depth limit
+	// * 需要搞懂depth是什么（应该是stack的深度）
+	// * 如果我们这笔交易需要的depth(evm.depth)超过了params.CallCreateDepth（call/create最大的depth -> 1024）就会报错
 	if evm.depth > int(params.CallCreateDepth) {
 		return nil, gas, ErrDepth
 	}
 	// Fail if we're trying to transfer more than the available balance
+	// * 如果call时候transfer value超过balance，就会报错 -> 就是我们导出error trace的地方
+	// * 我感觉这里应该是caller的balance -> 所以我们的出发点就错了，应该是调用合约账户的余额不足，而不是合约账户的余额不足
 	if value.Sign() != 0 && !evm.Context.CanTransfer(evm.StateDB, caller.Address(), value) {
+		// ! Error的位置
 		return nil, gas, ErrInsufficientBalance
 	}
+	// * 如果通过了上面两个error check，就可以更新snapshot（也就是state）
 	snapshot := evm.StateDB.Snapshot()
+	// * 还不太清楚precompile主要做什么，传入contract address，返回不同的版本的compile？
+	// ![issue] precompile是什么？
 	p, isPrecompile := evm.precompile(addr)
 
 	if !evm.StateDB.Exist(addr) {
 		if !isPrecompile && evm.chainRules.IsEIP158 && value.Sign() == 0 {
+			// * 如果调用了一个不存在的合约地址（!evm.stateDB.Exist）
 			// Calling a non existing account, don't do anything, but ping the tracer
 			if evm.Config.Debug {
 				if evm.depth == 0 {
+					// * 使用debug tracer -> 不太清楚要做什么
+					// ![issue] tracer是什么？
 					evm.Config.Tracer.CaptureStart(evm, caller.Address(), addr, false, input, gas, value)
 					evm.Config.Tracer.CaptureEnd(ret, 0, 0, nil)
 				} else {
@@ -241,11 +258,14 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			}
 			return nil, gas, nil
 		}
+		// * 如果调用的地址不存在，EVM会创建这个地址
 		evm.StateDB.CreateAccount(addr)
 	}
+	// * 创建之后再transfer/call一下
 	evm.Context.Transfer(evm.StateDB, caller.Address(), addr, value)
 
 	// Capture the tracer start/end events in debug mode
+	// * tracer相关的东西，跟上面一样，我不太清楚tracer是什么 -> 参考geth.doc，貌似就是debug.trace的参数，有很多tracer的模式
 	if evm.Config.Debug {
 		if evm.depth == 0 {
 			evm.Config.Tracer.CaptureStart(evm, caller.Address(), addr, false, input, gas, value)
@@ -266,6 +286,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 	} else {
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		// The contract is a scoped environment for this execution context only.
+		// * 获取合约地址对应的code
 		code := evm.StateDB.GetCode(addr)
 		if len(code) == 0 {
 			ret, err = nil, nil // gas is unchanged
@@ -274,6 +295,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			// If the account has no code, we can abort here
 			// The depth-check is already done, and precompiles handled above
 			contract := NewContract(caller, AccountRef(addrCopy), value, gas)
+			// * 调用这个合约
 			contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), code)
 			ret, err = evm.interpreter.Run(contract, input, false)
 			gas = contract.Gas
@@ -282,7 +304,15 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 	// When an error was returned by the EVM or when setting the creation code
 	// above we revert to the snapshot and consume any gas remaining. Additionally
 	// when we're in homestead this also counts for code storage gas errors.
+
+	// * 1.当某个错误发生的时候，我们revert snapshot，并消耗掉剩余的gas（consume any gas remaining）
+
+	// ![issue] 2.homestead是什么？-> 当我们在homestead时，这个也算作code storage gas error
+
+	// * 3.所以我们实际执行ErrDepth检查（通过）、ErrInsufficientBalance检查（弹出错误），最后就是这个RevertToSnapshot
+
 	if err != nil {
+		// * 如果有error，就把snapshot的状态给revert
 		evm.StateDB.RevertToSnapshot(snapshot)
 		if err != ErrExecutionReverted {
 			gas = 0
