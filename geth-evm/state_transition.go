@@ -259,19 +259,14 @@ func (st *StateTransition) preCheck() error {
 	return st.buyGas()
 }
 
-// TransitionDb will transition the state by applying the current message and
-// returning the evm execution result with following fields.
-//
-// - used gas:
-//      total gas used (including gas being refunded)
-// - returndata:
-//      the returned data from evm
-// - concrete execution error:
-//      various **EVM** error which aborts the execution,
-//      e.g. ErrOutOfGas, ErrExecutionReverted
-//
+// * TransitionDb就是用来转换state的函数，通过apply current message
+// * 而且它会返回used gas（总共用的gas）、returndata（evm返回的data）、concrete execution error（终止EVM操作的error，我们需要的就是这玩意）
+
 // However if any consensus issue encountered, return the error directly with
 // nil evm execution result.
+
+// * 遇到consensus的问题，直接返回error，并携带nil的EVM执行结果
+
 func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// First check this message satisfies all consensus rules before
 	// applying the message. The rules include these clauses
@@ -279,9 +274,20 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// 1. the nonce of the message caller is correct
 	// 2. caller has enough balance to cover transaction fee(gaslimit * gasprice)
 	// 3. the amount of gas required is available in the block
+
 	// 4. the purchased gas is enough to cover intrinsic usage
 	// 5. there is no overflow when calculating intrinsic gas
 	// 6. caller has enough balance to cover asset transfer for **topmost** call
+
+	// * 1.在apply current message之前，会检查message是否满足所有的共识规则
+	// * 1）caller的nonce是正确的
+	// * 2）caller有足够balance去支付tx fee（gaslimit * gasprice） -> 我们就卡在这一步，然后交易被abort，没有调用Call函数
+	// * 3）当前block有足够的gas去处理这笔交易
+
+	// ![issue] 2.通过前三个检查之后，还有三个需要检查的东西 -> 下面这三个东西，都不是很理解
+	// * 1）购买足够的gas去覆盖intrinsic usage -> 结合我们的报错，卡在了gas这一环（insufficient funds for intrinsic transaction cost）
+	// * 2）计算intrinsic gas的时候没有overflow
+	// * 3）caller有足够的balance去覆盖资产转移（value transfer），还有个**topmost** call（不知道是什么）
 
 	// Check clauses 1-3, buy gas if everything is correct
 	if err := st.preCheck(); err != nil {
