@@ -35,8 +35,10 @@ var emptyCodeHash = crypto.Keccak256Hash(nil)
 
 /*
 The State Transitioning Model
+
 A state transition is a change made when a transaction is applied to the current world state
 The state transitioning model does all the necessary work to work out a valid new state root.
+
 1) Nonce handling
 2) Pre pay gas
 3) Create a new state object if the recipient is \0*32
@@ -213,8 +215,10 @@ func (st *StateTransition) buyGas() error {
 
 func (st *StateTransition) preCheck() error {
 	// Only check transactions that are not fake
+	// * 检查交易是否有效
 	if !st.msg.IsFake() {
 		// Make sure this transaction's nonce is correct.
+		// * 检查nonce是否正确 -> nonce要比上一个大
 		stNonce := st.state.GetNonce(st.msg.From())
 		if msgNonce := st.msg.Nonce(); stNonce < msgNonce {
 			return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
@@ -227,6 +231,7 @@ func (st *StateTransition) preCheck() error {
 				st.msg.From().Hex(), stNonce)
 		}
 		// Make sure the sender is an EOA
+		// * 确定sender是一个EOA（外部账户，个人账户）
 		if codeHash := st.state.GetCodeHash(st.msg.From()); codeHash != emptyCodeHash && codeHash != (common.Hash{}) {
 			return fmt.Errorf("%w: address %v, codehash: %s", ErrSenderNoEOA,
 				st.msg.From().Hex(), codeHash)
@@ -235,6 +240,7 @@ func (st *StateTransition) preCheck() error {
 	// Make sure that transaction gasFeeCap is greater than the baseFee (post london)
 	if st.evm.ChainConfig().IsLondon(st.evm.Context.BlockNumber) {
 		// Skip the checks if gas fields are zero and baseFee was explicitly disabled (eth_call)
+		// ![issue] eth_call可以跳过检查吗？
 		if !st.evm.Config.NoBaseFee || st.gasFeeCap.BitLen() > 0 || st.gasTipCap.BitLen() > 0 {
 			if l := st.gasFeeCap.BitLen(); l > 256 {
 				return fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", ErrFeeCapVeryHigh,
@@ -258,6 +264,18 @@ func (st *StateTransition) preCheck() error {
 	}
 	return st.buyGas()
 }
+
+// TransitionDb will transition the state by applying the current message and
+// returning the evm execution result with following fields.
+//
+// - used gas:
+//      total gas used (including gas being refunded)
+// - returndata:
+//      the returned data from evm
+// - concrete execution error:
+//      various **EVM** error which aborts the execution,
+//      e.g. ErrOutOfGas, ErrExecutionReverted
+//
 
 // * TransitionDb就是用来转换state的函数，通过apply current message
 // * 而且它会返回used gas（总共用的gas）、returndata（evm返回的data）、concrete execution error（终止EVM操作的error，我们需要的就是这玩意）
@@ -336,6 +354,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	} else {
 		// Increment the nonce for the next transaction
 		st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1)
+		// ![issue] 调用Call的位置
 		ret, st.gas, vmerr = st.evm.Call(sender, st.to(), st.data, st.gas, st.value)
 	}
 
