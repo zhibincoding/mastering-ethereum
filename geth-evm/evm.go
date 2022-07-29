@@ -483,9 +483,24 @@ func (c *codeAndHash) Hash() common.Hash {
 }
 
 // create creates a new contract using code as deployment code.
+// * 这个函数可以创建一个合约，并且把代码给部署上去 -> Workflow
+// * 1.通过三个preCheck：depth、balance、nonce
+// * 2.把address添加到access-list
+// * 3.检查部署地址有没有code，没有的话就创建一个合约账户
+// * 	 初始化一个地址，并且部署codehash
+// * 4.调用interpreter.Run来运行合约代码，检查代码size是否超过上限
+// * 5.计算存储代码的gas是否足够
+// * 6.出现任何交易就revert snapshot
+// *   注意ErrCodeStoreOutOfGas不会上链，其他错误消耗gas并上链
+
 func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64, value *big.Int, address common.Address, typ OpCode) ([]byte, common.Address, uint64, error) {
 	// Depth check execution. Fail if we're trying to execute above the
 	// limit.
+	// * 要通过以下几个preCheck
+	// * 1）检查depth
+	// * 2）检查caller的balance是否充足 -> 所以这里的caller是contract？
+	// * 		不过这里要通过balance的检查，说明caller余额是够的
+	// * 3）nonce是正确的
 	if evm.depth > int(params.CallCreateDepth) {
 		return nil, common.Address{}, gas, ErrDepth
 	}
@@ -499,17 +514,22 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	evm.StateDB.SetNonce(caller.Address(), nonce+1)
 	// We add this to the access list _before_ taking a snapshot. Even if the creation fails,
 	// the access-list change should not be rolled back
+	// * 把这个地址添加到access-list（在snapshot之前）
+	// * 而且就算creation失败了，这个access-list也不会回滚
 	if evm.chainRules.IsBerlin {
 		evm.StateDB.AddAddressToAccessList(address)
 	}
 	// Ensure there's no existing contract already at the designated address
+	// * 检查这个合约地址之前是否部署过代码，通过之前的那个emptyCodeHash工具
+	// * 如果这个地址已经有代码，弹出ErrContractAddressCollision
 	contractHash := evm.StateDB.GetCodeHash(address)
 	if evm.StateDB.GetNonce(address) != 0 || (contractHash != (common.Hash{}) && contractHash != emptyCodeHash) {
 		return nil, common.Address{}, 0, ErrContractAddressCollision
 	}
+	// * 如果通过了emptyCodeHash检查，就可以创建一个新的合约账户了
 	// Create a new account on the state
 	snapshot := evm.StateDB.Snapshot()
-	evm.StateDB.CreateAccount(address)
+	evm.StateDB.CreateAccount(address) // * 创建新合约账户 -> 也说明报错在创建了新合约之后
 	if evm.chainRules.IsEIP158 {
 		evm.StateDB.SetNonce(address, 1)
 	}
@@ -517,9 +537,12 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 
 	// Initialise a new contract and set the code that is to be used by the EVM.
 	// The contract is a scoped environment for this execution context only.
+	// * 初始化一个新的合约，并且部署EVM code
+	// ![issue] 这里说contract只是一个execution context，是什么意思？是因为sandbox model吗
 	contract := NewContract(caller, AccountRef(address), value, gas)
 	contract.SetCodeOptionalHash(&address, codeAndHash)
 
+	// * 正常操作，开启tracer和debug
 	if evm.Config.Debug {
 		if evm.depth == 0 {
 			evm.Config.Tracer.CaptureStart(evm, caller.Address(), address, true, codeAndHash.code, gas, value)
@@ -530,14 +553,18 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 
 	start := time.Now()
 
+	// * 调用interpreter.Run来运行合约代码 -> Run里面也有一个OOG error，要注意这一点
+	// ![issue] 还不确定Run里面的OOG会不会有影响
 	ret, err := evm.interpreter.Run(contract, nil, false)
 
 	// Check whether the max code size has been exceeded, assign err if the case.
+	// * 检查代码的size是否超过了最大上限，超过了就弹出 ErrMaxCodeSizeExceeded
 	if err == nil && evm.chainRules.IsEIP158 && len(ret) > params.MaxCodeSize {
 		err = ErrMaxCodeSizeExceeded
 	}
 
 	// Reject code starting with 0xEF if EIP-3541 is enabled.
+	// * 如果启动了EIP3541（不知道这是什么），就会拒绝0xEF开头的代码
 	if err == nil && len(ret) >= 1 && ret[0] == 0xEF && evm.chainRules.IsLondon {
 		err = ErrInvalidCode
 	}
@@ -546,11 +573,25 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	// calculate the gas required to store the code. If the code could not
 	// be stored due to not enough gas set an error and let it be handled
 	// by the error checking condition below.
+
+	// * 重要的位置
+	// * 1）如果合约creation运行顺利（唯一不清楚的只有Run），并且没有弹出error，到这里就开始检查存储代码需要消耗的Gas是否充足
+	// * 2）所以触发这个错误 -> 合约创建/合约代码不会有问题（要再看一下run函数是干嘛的），只是存储合约代码的gas不够
+
 	if err == nil {
+		// ! 要研究一下部署代码时候的gas怎么计算
+		// * 在这里我直观感觉应该是一个byte消耗200的gas，所以bytes长度 * 200
+		// * len(ret)应该是bytecode的长度
+		// * CreateDataGas是常数，设置成了200 -> 最后算出的createDataGas应该就是存储合约代码需要消耗的gas
 		createDataGas := uint64(len(ret)) * params.CreateDataGas
+		// * UseGas函数检查是否有足够的gas
+		// ![issue] 问题来了，是否有足够的gas指的是谁？-> c.Gas -> 这里的gas很有可能是部署合约的时候传进去的参数
 		if contract.UseGas(createDataGas) {
+			// * 如果gas足够则部署
 			evm.StateDB.SetCode(address, ret)
 		} else {
+			// ! Error的位置
+			// * gas不够就弹出我们需要的OOG error
 			err = ErrCodeStoreOutOfGas
 		}
 	}
@@ -558,8 +599,13 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	// When an error was returned by the EVM or when setting the creation code
 	// above we revert to the snapshot and consume any gas remaining. Additionally
 	// when we're in homestead this also counts for code storage gas errors.
+	// ! Error的位置
+	// * 如果产生了error就revert snapshot，并且消费任意的一笔gas
+	// * 跟Call函数的最后一步差不多
 	if err != nil && (evm.chainRules.IsHomestead || err != ErrCodeStoreOutOfGas) {
 		evm.StateDB.RevertToSnapshot(snapshot)
+		// * OK 所以每次发生ErrExecutionReverted的时候交易都不上链
+		// * 如果不是这个error，就会消费gas，并且失败的交易被提交到链上
 		if err != ErrExecutionReverted {
 			contract.UseGas(contract.Gas)
 		}
