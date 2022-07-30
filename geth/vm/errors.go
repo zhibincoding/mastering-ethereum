@@ -23,9 +23,11 @@ import (
 
 // List evm execution errors
 var (
-	ErrOutOfGas                 = errors.New("out of gas")
-	ErrCodeStoreOutOfGas        = errors.New("contract creation code storage out of gas")
-	ErrDepth                    = errors.New("max call depth exceeded")
+	ErrOutOfGas = errors.New("out of gas")
+	// * 用来触发OOG Error
+	ErrCodeStoreOutOfGas = errors.New("contract creation code storage out of gas")
+	ErrDepth             = errors.New("max call depth exceeded")
+	// * 与外层error.go中定义的ErrInsufficientFund不同
 	ErrInsufficientBalance      = errors.New("insufficient balance for transfer")
 	ErrContractAddressCollision = errors.New("contract address collision")
 	ErrExecutionReverted        = errors.New("execution reverted")
@@ -44,6 +46,8 @@ var (
 
 // ErrStackUnderflow wraps an evm error when the items on the stack less
 // than the minimal requirement.
+// * todo: less
+// * overflow和underflow处理起来是差不多的，只要解决了其中一个，另外一个并不难解决
 type ErrStackUnderflow struct {
 	stackLen int
 	required int
@@ -55,12 +59,18 @@ func (e *ErrStackUnderflow) Error() string {
 
 // ErrStackOverflow wraps an evm error when the items on the stack exceeds
 // the maximum allowance.
+// * stack上的item超过最大允许值的时候，就会弹出这个stackOverflow的error
+// * EVM的stack深度是1024（这个就是在params文件中定义的stackLimit）
 type ErrStackOverflow struct {
+	// * stackLen应该是目前stack上item的深度
+	// * limit应该是params.stackLimit = 1024
 	stackLen int
 	limit    int
 }
 
 func (e *ErrStackOverflow) Error() string {
+	// * 出现stack overflow就弹出这段报错提醒
+	// * stack limit reached 1026 (1024)
 	return fmt.Sprintf("stack limit reached %d (%d)", e.stackLen, e.limit)
 }
 
