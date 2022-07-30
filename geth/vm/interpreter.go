@@ -138,13 +138,19 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 // It's important to note that any errors returned by the interpreter should be
 // considered a revert-and-consume-all-gas operation except for
 // ErrExecutionReverted which means revert-and-keep-gas-left.
+
+// * 1.运行一个loop，并且用given input data来评估一个contract的code（看看能不能运行？），如果发生错误就返回bytes的slice以及对应的报错
+// !   所以调用一笔to null（contract creation）的交易，并且通过input data来构造error，是不错的方法
+// * 2.除了`ErrExecutionReverted`以外，其他的大部分错误都是`revert-and-consume-all-gas` -> 所以可以上链，我们能拿到对应的error trace
 func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
 	// Increment the call depth which is restricted to 1024
+	// * 增加call depth -> 上限是1024
 	in.evm.depth++
 	defer func() { in.evm.depth-- }()
 
 	// Make sure the readOnly is only set if we aren't in readOnly yet.
 	// This also makes sure that the readOnly flag isn't removed for child calls.
+	// * 启动readOnly的config
 	if readOnly && !in.readOnly {
 		in.readOnly = true
 		defer func() { in.readOnly = false }()
@@ -152,17 +158,23 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 
 	// Reset the previous call's return data. It's unimportant to preserve the old buffer
 	// as every returning call will return new data anyway.
+	// * 重置returnData -> 不需要保存buffer里面的数据，每次call都会返回新数据
 	in.returnData = nil
 
 	// Don't bother with the execution if there's no code.
+	// * 没有代码就弹出，不需要执行
 	if len(contract.Code) == 0 {
 		return nil, nil
 	}
 
+	// * 一堆重要的variables
 	var (
-		op          OpCode        // current opcode
-		mem         = NewMemory() // bound memory
-		stack       = newstack()  // local stack
+		// * 这里有可能是执行每一个opcode
+		op OpCode // current opcode
+		// * returns a new memory model
+		mem = NewMemory() // bound memory
+		// * 返回当前stackPool中的stack -> 一起传到ScopeContext里，作为call的context
+		stack       = newstack() // local stack
 		callContext = &ScopeContext{
 			Memory:   mem,
 			Stack:    stack,
@@ -171,22 +183,28 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		// For optimisation reason we're using uint64 as the program counter.
 		// It's theoretically possible to go above 2^64. The YP defines the PC
 		// to be uint256. Practically much less so feasible.
+		// * program counter -> 用来计数（OS中常见的组件），具体作用暂不清楚
 		pc   = uint64(0) // program counter
 		cost uint64
 		// copies used by tracer
 		pcCopy  uint64 // needed for the deferred EVMLogger
 		gasCopy uint64 // for EVMLogger to log gas remaining before execution
 		logged  bool   // deferred EVMLogger should ignore already logged steps
-		res     []byte // result of the opcode execution function
+		// * opcode执行的结果
+		res []byte // result of the opcode execution function
 	)
 	// Don't move this deferred function, it's placed before the capturestate-deferred method,
 	// so that it get's executed _after_: the capturestate needs the stacks before
 	// they are returned to the pools
+	// * 这个defer函数要放在capturestate-deferred method之前
+	// * capturestate貌似需要这里的stack信息
 	defer func() {
 		returnStack(stack)
 	}()
+	// * input data
 	contract.Input = input
 
+	// * 启动debugger
 	if in.cfg.Debug {
 		defer func() {
 			if err != nil {
@@ -202,20 +220,39 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during
 	// the execution of one of the operations or until the done flag is set by the
 	// parent context.
+
+	// * 1.这里是interpreter的主循环（main loop）
+	// * 2.以下情况会终止执行
+	// * 	 1）`STOP`, `RETURN`, `SELFDESTRUCT`的opcode出现，
+	// *   2）在执行期间出现了error
+	// *	 3）或者parent context设置了`done` flag -> 不清楚这是什么
+
+	// * main loop的循环体
 	for {
+		// * 应该是debug的一些config
 		if in.cfg.Debug {
 			// Capture pre-execution values for tracing.
 			logged, pcCopy, gasCopy = false, pc, contract.Gas
 		}
 		// Get the operation from the jump table and validate the stack to ensure there are
 		// enough stack items available to perform the operation.
+		// * 1.从jump table中拿到operation（应该是opcode）
+		// * 2.确保stack有足够的items来执行对应的操作 -> 所以才会有很多stack相关的error，比如overflow和underflow
 		op = contract.GetOp(pc)
 		operation := in.cfg.JumpTable[op]
 		cost = operation.constantGas // For tracing
+
 		// Validate stack
+		// * 检测stack是否可用 -> items是否足够
+		// * sLen是input data中使用的stack长度，如果长度小于minStack（比如我们前面构造的，就是一个opcode都没有，所以会弹出undeflow）
+		// * minStack的数据格式我有点没看懂，minStack(0, 1)
 		if sLen := stack.len(); sLen < operation.minStack {
+			// ! underflow
 			return nil, &ErrStackUnderflow{stackLen: sLen, required: operation.minStack}
 		} else if sLen > operation.maxStack {
+			// * 所以这里构造的逻辑其实很简单，就是填1025个opcode就可以
+			// * 也许有更简单的方法
+			// ! 出现Error的位置 - overflow
 			return nil, &ErrStackOverflow{stackLen: sLen, limit: operation.maxStack}
 		}
 		if !contract.UseGas(cost) {
