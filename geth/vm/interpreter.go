@@ -84,11 +84,15 @@ type EVMInterpreter struct {
 }
 
 // NewEVMInterpreter returns a new instance of the Interpreter.
+// * 返回一个interpreter实例
 func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 	// If jump table was not initialised we set the default one.
+	// * 这里是一个default的JumpTable，装EVM的指令集？
 	if cfg.JumpTable == nil {
 		switch {
 		case evm.chainRules.IsMerge:
+			// * /vm/jump_table.go里面几乎定义了所有的指令集（一组opcode）
+			// ! 这玩意有什么作用呢？
 			cfg.JumpTable = &mergeInstructionSet
 		case evm.chainRules.IsLondon:
 			cfg.JumpTable = &londonInstructionSet
@@ -120,6 +124,8 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 		}
 	}
 
+	// * 返回一个interpreter实例
+	// * 如果填了指令集（jumpTable）就直接用，否则返回一个默认的
 	return &EVMInterpreter{
 		evm: evm,
 		cfg: cfg,
