@@ -25,19 +25,32 @@ import (
 )
 
 // Config are the configuration options for the Interpreter
+// * 这里是Interpreter的configuration
 type Config struct {
-	Debug                   bool      // Enables debugging
-	Tracer                  EVMLogger // Opcode logger
-	NoBaseFee               bool      // Forces the EIP-1559 baseFee to 0 (needed for 0 price calls)
-	EnablePreimageRecording bool      // Enables recording of SHA3/keccak preimages
+	// * 是否开启debug模式，启动geth的时候也有这个选项
+	Debug bool // Enables debugging
+	// * tracer貌似可以选择不同的版本
+	Tracer EVMLogger // Opcode logger
+	// ![issue] 不太清楚这里的baseFee指什么，貌似目前的gasPrice与此相关
+	NoBaseFee bool // Forces the EIP-1559 baseFee to 0 (needed for 0 price calls)
+	// * 启动Keccak SHA3的记录
+	// ![issue] 不太清楚这里的preimage指的是什么
+	EnablePreimageRecording bool // Enables recording of SHA3/keccak Enables recording of SHA3/keccak preimages
 
+	// * EVM的指令表（instruction table），如果没set则自动补充
+	// * 目前是填opcodes？
 	JumpTable *JumpTable // EVM instruction table, automatically populated if unset
 
+	// * 填充其他要启动的EIPs
 	ExtraEips []int // Additional EIPS that are to be enabled
 }
 
 // ScopeContext contains the things that are per-call, such as stack and memory,
 // but not transients like pc and gas
+// * ScopeContext里面是每次调用都会包含的东西 -> 比如stack和memory
+// * 但是pc和gas这种瞬态（transients）没有包含
+
+// ![issue] 只有清楚EVM里面的pc/gas，以及transients，才能对EVM circuit和其他circuits的作用有比较清楚的认识
 type ScopeContext struct {
 	Memory   *Memory
 	Stack    *Stack
@@ -47,16 +60,22 @@ type ScopeContext struct {
 // keccakState wraps sha3.state. In addition to the usual hash methods, it also supports
 // Read to get a variable amount of data from the hash state. Read is faster than Sum
 // because it doesn't copy the internal state, but also modifies the internal state.
+
+// * 1.keccakState也封装了sha3.state
+// * 2.还支持从hash state里面读取可变变量的数据
+// * 3.read比sum更快 -> 它不复制internal state，而且可以修改internal state（那为啥叫read..）
 type keccakState interface {
 	hash.Hash
 	Read([]byte) (int, error)
 }
 
 // EVMInterpreter represents an EVM interpreter
+// * EVM interpreter（解释器）
 type EVMInterpreter struct {
-	evm *EVM
+	evm *EVM // * evm.go
 	cfg Config
 
+	// ![issue] 并没看懂这两个是什么东西
 	hasher    keccakState // Keccak256 hasher instance shared across opcodes
 	hasherBuf common.Hash // Keccak256 hasher result array shared aross opcodes
 
