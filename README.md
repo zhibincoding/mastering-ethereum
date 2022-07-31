@@ -18,7 +18,9 @@
   </p>
 </div>
 
-## threads
+## Threads
+
+### CN
 
 * [Solidity and Ethereum economy](https://twitter.com/LuozhuZhang/status/1513666150109904897?s=20&t=KHioBSf6VWg4KJ6bcKirRw)
 
@@ -35,6 +37,8 @@
 * [PSE = Appliedzkp](https://twitter.com/LuozhuZhang/status/1527669377717268481?s=20&t=EWcIhJuz8Bay54S0QGXtig)
 
 * [zkp history](https://twitter.com/LuozhuZhang/status/1530984087061929984?s=20&t=fjH-1hTw1PYwF84zmkaETw)
+
+### EN
 
 * [zkEVM Architecture](https://twitter.com/LuozhuZhang/status/1538166119785111552?s=20&t=o2l0EN7qTAqD-Pal2LuDxg)
 
