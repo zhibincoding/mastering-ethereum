@@ -72,6 +72,8 @@ func (e *ErrStackOverflow) Error() string {
 	// * 出现stack overflow就弹出这段报错提醒
 	// * stack limit reached 1026 (1024)
 	return fmt.Sprintf("stack limit reached %d (%d)", e.stackLen, e.limit)
+
+	// ! stack limit reached 1024 (1023)
 }
 
 // ErrInvalidOpCode wraps an evm error when an invalid opcode is encountered.
