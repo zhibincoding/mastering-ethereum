@@ -255,6 +255,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			// ! 出现Error的位置 - overflow
 			return nil, &ErrStackOverflow{stackLen: sLen, limit: operation.maxStack}
 		}
+		// * 检查gas是否够用
 		if !contract.UseGas(cost) {
 			return nil, ErrOutOfGas
 		}
