@@ -60,6 +60,8 @@ def sar(instruction: Instruction):
 
 # * 检查witness，写一些gadgets做检查
 def __check_witness(
+    # * 传入各种witness数据，并且定义数据类型
+    # * 剩下的就是做各种constraint
     instruction: Instruction,
     a: RLC,
     shift: RLC,
@@ -99,6 +101,7 @@ def __check_witness(
         instruction.constrain_equal(a64s_lo_lt_p_lo, FQ(1))
 
     # merge contraints
+    
     shf_div64_eq0 = instruction.is_zero(shf_div64)
     shf_div64_eq1 = instruction.is_zero(shf_div64 - 1)
     shf_div64_eq2 = instruction.is_zero(shf_div64 - 2)
@@ -188,6 +191,7 @@ def __gen_witness(instruction: Instruction, opcode: FQ, a: RLC, shift: RLC):
     # * b64s是shift之后的字段
     b64s = [instruction.select(is_neg, FQ(MAX_U64), FQ(0))] * 4
     # ! 这部分没有看太明白
+    # * 这里其实是给b64s做初始化
     b64s[3 - shf_div64.n] = a64s_hi[3] + p_top
     for k in range(3 - shf_div64.n):
         b64s[k] = a64s_hi[k + shf_div64.n] + a64s_lo[k + shf_div64.n + 1] * p_hi
