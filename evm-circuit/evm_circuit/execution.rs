@@ -166,6 +166,8 @@ pub(crate) trait ExecutionGadget<F: FieldExt> {
     ) -> Result<(), Error>;
 }
 
+// ! 跟Fibonacci一样 -> 首先实现一个config struct，然后实现对应的Chip，然后用gadget实现对应的电路
+// * Execution config struct -> 这里应该是后面`EVM circuit`验证witness过程中会用到的gadgets
 #[derive(Clone, Debug)]
 pub(crate) struct ExecutionConfig<F> {
     q_usable: Selector,
@@ -237,6 +239,9 @@ pub(crate) struct ExecutionConfig<F> {
     // ! 之前有两个单独的gadget，分别是shl和shr
     // ! 现在这两个单独的gadget被合二为一了
     // * 导入的全是gadget
+
+    // * 正常的circuit里这里都是一堆columns的config
+    // * 不过这里是整个EVM circuit执行文件的config，所以配置的全都是gadgets
     shl_shr_gadget: ShlShrGadget<F>,
     signed_comparator_gadget: SignedComparatorGadget<F>,
     signextend_gadget: SignextendGadget<F>,
