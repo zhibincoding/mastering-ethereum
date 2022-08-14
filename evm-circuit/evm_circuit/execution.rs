@@ -148,24 +148,6 @@ pub(crate) trait ExecutionGadget<F: FieldExt> {
     ) -> Result<(), Error>;
 }
 
-pub(crate) trait ExecutionGadget<F: FieldExt> {
-    const NAME: &'static str;
-
-    const EXECUTION_STATE: ExecutionState;
-
-    fn configure(cb: &mut ConstraintBuilder<F>) -> Self;
-
-    fn assign_exec_step(
-        &self,
-        region: &mut CachedRegion<'_, '_, F>,
-        offset: usize,
-        block: &Block<F>,
-        transaction: &Transaction,
-        call: &Call,
-        step: &ExecStep,
-    ) -> Result<(), Error>;
-}
-
 // ! 跟Fibonacci一样 -> 首先实现一个config struct，然后实现对应的Chip，然后用gadget实现对应的电路
 // * Execution config struct -> 这里应该是后面`EVM circuit`验证witness过程中会用到的gadgets
 #[derive(Clone, Debug)]
@@ -256,11 +238,18 @@ pub(crate) struct ExecutionConfig<F> {
     error_oog_static_memory_gadget: ErrorOOGStaticMemoryGadget<F>,
 }
 
+// ! `shl`分别在`configure`和`assign_exec_step_int`函数里
 impl<F: Field> ExecutionConfig<F> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn configure(
+        // * 这里其实就像一个Fibonacci的Chip一样，因为有ConstranitSystem存在
+        // * 这里的meta可以用来`create columns`和`define custom gates`
+        // * 我们可以看看在这里主要用来做什么
         meta: &mut ConstraintSystem<F>,
+        // * 这个不清楚是什么
         power_of_randomness: [Expression<F>; 31],
+        // * 用到的tables
+        // * fixed、byte、tx、rw、bytecode、block、copy
         fixed_table: &dyn LookupTable<F>,
         byte_table: &dyn LookupTable<F>,
         tx_table: &dyn LookupTable<F>,
@@ -269,6 +258,8 @@ impl<F: Field> ExecutionConfig<F> {
         block_table: &dyn LookupTable<F>,
         copy_table: &dyn LookupTable<F>,
     ) -> Self {
+        // * 定义各种columns
+        // * 在这里主要就是advice column和selector
         let q_usable = meta.complex_selector();
         let q_step = meta.advice_column();
         let num_rows_until_next_step = meta.advice_column();
@@ -280,6 +271,8 @@ impl<F: Field> ExecutionConfig<F> {
         let step_curr = Step::new(meta, advices, 0);
         let mut height_map = HashMap::new();
 
+        // * 主要写了两个gate -> 分别是约束execution state、和q_step
+        // * 从这里就可以感受出evm circuit(zkevm)最早的设计思想
         meta.create_gate("Constrain execution state", |meta| {
             let q_usable = meta.query_selector(q_usable);
             let q_step = meta.query_advice(q_step, Rotation::cur());
@@ -537,6 +530,7 @@ impl<F: Field> ExecutionConfig<F> {
         let gadget = G::configure(&mut cb);
 
         // Enforce the step height for this opcode
+        // * 这是额外的两个gate -> 分别是`query num rows`和`约束state machine的transition`
         let mut num_rows_until_next_step_next = 0.expr();
         meta.create_gate("query num rows", |meta| {
             num_rows_until_next_step_next =
@@ -843,16 +837,22 @@ impl<F: Field> ExecutionConfig<F> {
 
         macro_rules! assign_exec_step {
             ($gadget:expr) => {
+                // * 貌似是每个gadget里面的参数
                 $gadget.assign_exec_step(region, offset, block, transaction, call, step)?
             };
         }
 
+        // * 这里会匹配execution里面对应的操作 -> 也就是execution state
+        // * 匹配到对应的操作以后，会match到对应的gadget，从而做约束
         match step.execution_state {
             // internal states
+            // * 初始状态 -> BeginTx
+            // * 为啥EndTx和EndBlock也放到最前面
             ExecutionState::BeginTx => assign_exec_step!(self.begin_tx_gadget),
             ExecutionState::EndTx => assign_exec_step!(self.end_tx_gadget),
             ExecutionState::EndBlock => assign_exec_step!(self.end_block_gadget),
             // opcode
+            // * 这里是每一个opcode
             ExecutionState::ADD_SUB => assign_exec_step!(self.add_sub_gadget),
             ExecutionState::ADDMOD => assign_exec_step!(self.addmod_gadget),
             ExecutionState::BITWISE => assign_exec_step!(self.bitwise_gadget),
@@ -893,6 +893,8 @@ impl<F: Field> ExecutionConfig<F> {
             ExecutionState::BLOCKCTXU256 => assign_exec_step!(self.block_ctx_u256_gadget),
             ExecutionState::SELFBALANCE => assign_exec_step!(self.selfbalance_gadget),
             // dummy gadgets
+            // * 这部分是某个叫dummy的东西，并不是真实的opcode
+            // * 这些opcode还需要时间慢慢实现，比如SHA3、BALANCE等
             ExecutionState::SHA3 => assign_exec_step!(self.sha3_gadget),
             ExecutionState::ADDRESS => assign_exec_step!(self.address_gadget),
             ExecutionState::BALANCE => assign_exec_step!(self.balance_gadget),
@@ -910,7 +912,8 @@ impl<F: Field> ExecutionConfig<F> {
             ExecutionState::STATICCALL => assign_exec_step!(self.staticcall_gadget),
             ExecutionState::SELFDESTRUCT => assign_exec_step!(self.selfdestruct_gadget),
             // end of dummy gadgets
-            // ! 同上，类似但是不同作用的注册过程
+            // ! 我们添加到SHL opcode
+            // * 这部分如果实现了，感觉可以放到dummy gadget之前
             ExecutionState::SHL_SHR => assign_exec_step!(self.shl_shr_gadget),
             ExecutionState::SIGNEXTEND => assign_exec_step!(self.signextend_gadget),
             ExecutionState::SLOAD => assign_exec_step!(self.sload_gadget),
@@ -918,6 +921,8 @@ impl<F: Field> ExecutionConfig<F> {
             ExecutionState::STOP => assign_exec_step!(self.stop_gadget),
             ExecutionState::SWAP => assign_exec_step!(self.swap_gadget),
             // errors
+            // * 这里应该会实现几乎所有的error case
+            // * 总体来说就是OOG和non-OOG
             ExecutionState::ErrorOutOfGasStaticMemoryExpansion => {
                 assign_exec_step!(self.error_oog_static_memory_gadget)
             }
