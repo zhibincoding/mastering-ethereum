@@ -1,31 +1,31 @@
 #![allow(missing_docs)]
-use crate::evm_circuit::{
-    param::{N_BYTES_WORD, STACK_CAPACITY},
-    step::ExecutionState,
+use crate::{
+    evm_circuit::{
+        param::{N_BYTES_WORD, STACK_CAPACITY},
+        step::ExecutionState,
+        util::RandomLinearCombination,
+    },
     table::{
         AccountFieldTag, BlockContextFieldTag, BytecodeFieldTag, CallContextFieldTag, RwTableTag,
         TxContextFieldTag, TxLogFieldTag, TxReceiptFieldTag,
     },
-    util::RandomLinearCombination,
 };
 
 use bus_mapping::{
-    circuit_input_builder::{self, StepAuxiliaryData},
+    circuit_input_builder::{self, CopyEvent},
     error::{ExecError, OogError},
     operation::{self, AccountField, CallContextField, TxLogField, TxReceiptField},
 };
 
-use eth_types::evm_types::OpcodeId;
-use eth_types::{Address, Field, ToLittleEndian, ToScalar, ToWord, Word};
+use eth_types::{evm_types::OpcodeId, ToWord};
+use eth_types::{Address, Field, ToLittleEndian, ToScalar, Word};
 use eth_types::{ToAddress, U256};
 use halo2_proofs::arithmetic::{BaseExt, FieldExt};
 use halo2_proofs::pairing::bn256::Fr;
 use itertools::Itertools;
 use sha3::{Digest, Keccak256};
-use std::{collections::HashMap, convert::TryInto, iter};
+use std::{collections::HashMap, iter};
 
-// 一共八类数据
-// Block、BlockContext、Transaction、Call、ExecStep、Bytecode、RwMap、RwRow
 #[derive(Debug, Default, Clone)]
 pub struct Block<F> {
     /// The randomness for random linear combination
@@ -35,9 +35,13 @@ pub struct Block<F> {
     /// Read write events in the RwTable
     pub rws: RwMap,
     /// Bytecode used in the block
-    pub bytecodes: Vec<Bytecode>,
+    pub bytecodes: HashMap<Word, Bytecode>,
     /// The block context
     pub context: BlockContext,
+    /// Copy events for the EVM circuit's copy table.
+    pub copy_events: Vec<CopyEvent>,
+    /// Length to rw table rows in state circuit
+    pub state_circuit_pad_to: usize,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -240,17 +244,6 @@ impl Transaction {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum CodeSource {
-    Account(Word),
-}
-
-impl Default for CodeSource {
-    fn default() -> Self {
-        Self::Account(0.into())
-    }
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct Call {
     /// The unique identifier of call in the whole proof, using the
@@ -261,7 +254,7 @@ pub struct Call {
     /// Indicate if the call is a create call
     pub is_create: bool,
     /// The identifier of current executed bytecode
-    pub code_source: CodeSource,
+    pub code_hash: Word,
     /// The `rw_counter` at the end of reversion of a call if it has
     /// `is_persistent == false`
     pub rw_counter_end_of_reversion: usize,
@@ -317,8 +310,6 @@ pub struct ExecStep {
     pub log_id: usize,
     /// The opcode corresponds to the step
     pub opcode: Option<OpcodeId>,
-    /// Step auxiliary data
-    pub aux_data: Option<StepAuxiliaryData>,
 }
 
 impl ExecStep {
@@ -388,49 +379,62 @@ impl std::ops::Index<(RwTableTag, usize)> for RwMap {
         &self.0.get(&tag).unwrap()[idx]
     }
 }
-
 impl RwMap {
-    /// These "sorted_xx" methods are used in state circuit
-    pub fn sorted_memory_rw(&self) -> Vec<Rw> {
-        let mut sorted = self.0[&RwTableTag::Memory].clone();
-        sorted.sort_by_key(|x| match x {
-            Rw::Memory {
-                call_id,
-                memory_address,
-                ..
-            } => (*call_id, *memory_address),
-            _ => panic!("invalid memory rw"),
-        });
-        sorted
+    /// Check rw_counter is continuous and starting from 1
+    pub fn check_rw_counter_sanity(&self) {
+        for (idx, rw_counter) in self
+            .0
+            .values()
+            .flatten()
+            .map(|r| r.rw_counter())
+            .sorted()
+            .enumerate()
+        {
+            debug_assert_eq!(idx, rw_counter - 1);
+        }
     }
-
-    pub fn sorted_stack_rw(&self) -> Vec<Rw> {
-        let mut sorted = self.0[&RwTableTag::Stack].clone();
-        sorted.sort_by_key(|x| match x {
-            Rw::Stack {
-                call_id,
-                stack_pointer,
-                ..
-            } => (*call_id, *stack_pointer),
-            _ => panic!("invalid stack rw"),
-        });
-        sorted
+    /// Calculates the number of Rw::Start rows needed.
+    /// `target_len` is allowed to be 0 as an "auto" mode,
+    /// then only 1 Rw::Start row will be prepadded.
+    pub(crate) fn padding_len(rows: &[Rw], target_len: usize) -> usize {
+        if target_len > rows.len() {
+            target_len - rows.len()
+        } else {
+            if target_len != 0 {
+                log::error!(
+                    "RwMap::padding_len overflow, target_len: {}, rows.len(): {}",
+                    target_len,
+                    rows.len()
+                );
+            }
+            1
+        }
     }
-
-    pub fn sorted_storage_rw(&self) -> Vec<Rw> {
-        let mut sorted = self.0[&RwTableTag::AccountStorage].clone();
-        sorted.sort_by_key(|x| match x {
-            Rw::AccountStorage {
-                account_address,
-                storage_key,
-                ..
-            } => (*account_address, *storage_key),
-            _ => panic!("invalid storage rw"),
+    /// Prepad Rw::Start rows to target length
+    pub fn table_assignments_prepad(rows: &[Rw], target_len: usize) -> (Vec<Rw>, usize) {
+        let padding_length = Self::padding_len(rows, target_len);
+        let padding = (1..=padding_length).map(|rw_counter| Rw::Start { rw_counter });
+        (
+            padding.chain(rows.iter().cloned()).collect(),
+            padding_length,
+        )
+    }
+    /// Build Rws for assignment
+    pub fn table_assignments(&self) -> Vec<Rw> {
+        let mut rows: Vec<Rw> = self.0.values().flatten().cloned().collect();
+        rows.sort_by_key(|row| {
+            (
+                row.tag() as u64,
+                row.id().unwrap_or_default(),
+                row.address().unwrap_or_default(),
+                row.field_tag().unwrap_or_default(),
+                row.storage_key().unwrap_or_default(),
+                row.rw_counter(),
+            )
         });
-        sorted
+        rows
     }
 }
-
 #[derive(Clone, Copy, Debug)]
 pub enum Rw {
     Start {
@@ -529,37 +533,19 @@ pub enum Rw {
         value: u64,
     },
 }
-#[derive(Default, Clone, Copy)]
-pub struct RwRow<F: FieldExt> {
+#[derive(Default, Clone, Copy, Debug)]
+pub struct RwRow<F> {
     pub rw_counter: F,
     pub is_write: F,
     pub tag: F,
-    pub key1: F,
-    pub key2: F,
-    pub key3: F,
-    pub key4: F,
+    pub id: F,
+    pub address: F,
+    pub field_tag: F,
+    pub storage_key: F,
     pub value: F,
     pub value_prev: F,
     pub aux1: F,
     pub aux2: F,
-}
-
-impl<F: FieldExt> From<[F; 11]> for RwRow<F> {
-    fn from(row: [F; 11]) -> Self {
-        Self {
-            rw_counter: row[0],
-            is_write: row[1],
-            tag: row[2],
-            key1: row[3],
-            key2: row[4],
-            key3: row[5],
-            key4: row[6],
-            value: row[7],
-            value_prev: row[8],
-            aux1: row[9],
-            aux2: row[10],
-        }
-    }
 }
 
 impl Rw {
@@ -661,10 +647,10 @@ impl Rw {
             rw_counter: F::from(self.rw_counter() as u64),
             is_write: F::from(self.is_write() as u64),
             tag: F::from(self.tag() as u64),
-            key1: F::from(self.id().unwrap_or_default() as u64),
-            key2: self.address().unwrap_or_default().to_scalar().unwrap(),
-            key3: F::from(self.field_tag().unwrap_or_default() as u64),
-            key4: RandomLinearCombination::random_linear_combine(
+            id: F::from(self.id().unwrap_or_default() as u64),
+            address: self.address().unwrap_or_default().to_scalar().unwrap(),
+            field_tag: F::from(self.field_tag().unwrap_or_default() as u64),
+            storage_key: RandomLinearCombination::random_linear_combine(
                 self.storage_key().unwrap_or_default().to_le_bytes(),
                 randomness,
             ),
@@ -828,7 +814,7 @@ impl Rw {
                 match field_tag {
                     // Only these two tags have values that may not fit into a scalar, so we need to
                     // RLC.
-                    CallContextFieldTag::CodeSource | CallContextFieldTag::Value => {
+                    CallContextFieldTag::CodeHash | CallContextFieldTag::Value => {
                         RandomLinearCombination::random_linear_combine(
                             value.to_le_bytes(),
                             randomness,
@@ -837,9 +823,15 @@ impl Rw {
                     _ => value.to_scalar().unwrap(),
                 }
             }
-            Self::Account { value, .. }
-            | Self::AccountStorage { value, .. }
-            | Self::Stack { value, .. } => {
+            Self::Account {
+                value, field_tag, ..
+            } => match field_tag {
+                AccountFieldTag::CodeHash | AccountFieldTag::Balance => {
+                    RandomLinearCombination::random_linear_combine(value.to_le_bytes(), randomness)
+                }
+                AccountFieldTag::Nonce => value.to_scalar().unwrap(),
+            },
+            Self::AccountStorage { value, .. } | Self::Stack { value, .. } => {
                 RandomLinearCombination::random_linear_combine(value.to_le_bytes(), randomness)
             }
 
@@ -860,9 +852,22 @@ impl Rw {
         }
     }
 
-    fn value_prev_assignment<F: Field>(&self, randomness: F) -> Option<F> {
+    pub fn value_prev_assignment<F: Field>(&self, randomness: F) -> Option<F> {
         match self {
-            Self::Account { value_prev, .. } | Self::AccountStorage { value_prev, .. } => {
+            Self::Account {
+                value_prev,
+                field_tag,
+                ..
+            } => Some(match field_tag {
+                AccountFieldTag::CodeHash | AccountFieldTag::Balance => {
+                    RandomLinearCombination::random_linear_combine(
+                        value_prev.to_le_bytes(),
+                        randomness,
+                    )
+                }
+                AccountFieldTag::Nonce => value_prev.to_scalar().unwrap(),
+            }),
+            Self::AccountStorage { value_prev, .. } => {
                 Some(RandomLinearCombination::random_linear_combine(
                     value_prev.to_le_bytes(),
                     randomness,
@@ -1048,13 +1053,13 @@ impl From<&operation::OperationContainer> for RwMap {
                         }
                         CallContextField::IsRoot => CallContextFieldTag::IsRoot,
                         CallContextField::IsCreate => CallContextFieldTag::IsCreate,
-                        CallContextField::CodeSource => CallContextFieldTag::CodeSource,
+                        CallContextField::CodeHash => CallContextFieldTag::CodeHash,
                         CallContextField::ProgramCounter => CallContextFieldTag::ProgramCounter,
                         CallContextField::StackPointer => CallContextFieldTag::StackPointer,
                         CallContextField::GasLeft => CallContextFieldTag::GasLeft,
                         CallContextField::MemorySize => CallContextFieldTag::MemorySize,
-                        CallContextField::StateWriteCounter => {
-                            CallContextFieldTag::StateWriteCounter
+                        CallContextField::ReversibleWriteCounter => {
+                            CallContextFieldTag::ReversibleWriteCounter
                         }
                     },
                     value: op.op().value,
@@ -1196,19 +1201,28 @@ impl From<&circuit_input_builder::ExecStep> for ExecutionState {
                 if op.is_log() {
                     return ExecutionState::LOG;
                 }
+
+                macro_rules! dummy {
+                    ($name:expr) => {{
+                        log::warn!("{:?} is implemented with DummyGadget", $name);
+                        $name
+                    }};
+                }
+
                 match op {
                     OpcodeId::ADD | OpcodeId::SUB => ExecutionState::ADD_SUB,
                     OpcodeId::ADDMOD => ExecutionState::ADDMOD,
                     OpcodeId::MUL | OpcodeId::DIV | OpcodeId::MOD => ExecutionState::MUL_DIV_MOD,
                     OpcodeId::MULMOD => ExecutionState::MULMOD,
+                    OpcodeId::SDIV | OpcodeId::SMOD => ExecutionState::SDIV_SMOD,
                     OpcodeId::EQ | OpcodeId::LT | OpcodeId::GT => ExecutionState::CMP,
                     OpcodeId::SLT | OpcodeId::SGT => ExecutionState::SCMP,
                     OpcodeId::SIGNEXTEND => ExecutionState::SIGNEXTEND,
-                    // TODO: Convert REVERT and RETURN to their own ExecutionState.
-                    OpcodeId::STOP | OpcodeId::RETURN | OpcodeId::REVERT => ExecutionState::STOP,
+                    OpcodeId::STOP => ExecutionState::STOP,
                     OpcodeId::AND => ExecutionState::BITWISE,
                     OpcodeId::XOR => ExecutionState::BITWISE,
                     OpcodeId::OR => ExecutionState::BITWISE,
+                    OpcodeId::NOT => ExecutionState::NOT,
                     OpcodeId::POP => ExecutionState::POP,
                     OpcodeId::PUSH32 => ExecutionState::PUSH,
                     OpcodeId::BYTE => ExecutionState::BYTE,
@@ -1244,14 +1258,29 @@ impl From<&circuit_input_builder::ExecStep> for ExecutionState {
                     OpcodeId::CODECOPY => ExecutionState::CODECOPY,
                     OpcodeId::CALLDATALOAD => ExecutionState::CALLDATALOAD,
                     OpcodeId::CODESIZE => ExecutionState::CODESIZE,
+                    OpcodeId::RETURN | OpcodeId::REVERT => ExecutionState::RETURN,
+                    // dummy ops
+                    OpcodeId::ADDRESS => dummy!(ExecutionState::ADDRESS),
+                    OpcodeId::BALANCE => dummy!(ExecutionState::BALANCE),
+                    OpcodeId::BLOCKHASH => dummy!(ExecutionState::BLOCKHASH),
+                    OpcodeId::EXP => dummy!(ExecutionState::EXP),
+                    OpcodeId::SHL => dummy!(ExecutionState::SHL),
+                    OpcodeId::SAR => dummy!(ExecutionState::SAR),
+                    OpcodeId::EXTCODESIZE => dummy!(ExecutionState::EXTCODESIZE),
+                    OpcodeId::EXTCODECOPY => dummy!(ExecutionState::EXTCODECOPY),
+                    OpcodeId::RETURNDATASIZE => dummy!(ExecutionState::RETURNDATASIZE),
+                    OpcodeId::RETURNDATACOPY => dummy!(ExecutionState::RETURNDATACOPY),
+                    OpcodeId::CREATE => dummy!(ExecutionState::CREATE),
+                    OpcodeId::CALLCODE => dummy!(ExecutionState::CALLCODE),
+                    OpcodeId::DELEGATECALL => dummy!(ExecutionState::DELEGATECALL),
+                    OpcodeId::CREATE2 => dummy!(ExecutionState::CREATE2),
+                    OpcodeId::STATICCALL => dummy!(ExecutionState::STATICCALL),
+                    OpcodeId::SELFDESTRUCT => dummy!(ExecutionState::SELFDESTRUCT),
                     _ => unimplemented!("unimplemented opcode {:?}", op),
                 }
             }
             circuit_input_builder::ExecState::BeginTx => ExecutionState::BeginTx,
             circuit_input_builder::ExecState::EndTx => ExecutionState::EndTx,
-            circuit_input_builder::ExecState::CopyToMemory => ExecutionState::CopyToMemory,
-            circuit_input_builder::ExecState::CopyToLog => ExecutionState::CopyToLog,
-            circuit_input_builder::ExecState::CopyCodeToMemory => ExecutionState::CopyCodeToMemory,
         }
     }
 }
@@ -1300,7 +1329,6 @@ fn step_convert(step: &circuit_input_builder::ExecStep) -> ExecStep {
         memory_size: step.memory_size as u64,
         reversible_write_counter: step.reversible_write_counter,
         log_id: step.log_id,
-        aux_data: step.aux_data.map(Into::into),
     }
 }
 
@@ -1327,15 +1355,7 @@ fn tx_convert(tx: &circuit_input_builder::Transaction, id: usize, is_last_tx: bo
                 id: call.call_id,
                 is_root: call.is_root,
                 is_create: call.is_create(),
-                code_source: match call.code_source {
-                    circuit_input_builder::CodeSource::Address(_) => {
-                        CodeSource::Account(call.code_hash.to_word())
-                    }
-                    circuit_input_builder::CodeSource::Memory => {
-                        CodeSource::Account(call.code_hash.to_word())
-                    }
-                    _ => unimplemented!("unimplemented code source {:#?}", call.code_source),
-                },
+                code_hash: call.code_hash.to_word(),
                 rw_counter_end_of_reversion: call.rw_counter_end_of_reversion,
                 caller_id: call.caller_id,
                 depth: call.depth,
@@ -1396,8 +1416,13 @@ pub fn block_convert(
                     .map(|call| call.code_hash)
                     .unique()
                     .into_iter()
-                    .map(|code_hash| Bytecode::new(code_db.0.get(&code_hash).unwrap().to_vec()))
+                    .map(|code_hash| {
+                        let bytecode = Bytecode::new(code_db.0.get(&code_hash).unwrap().to_vec());
+                        (bytecode.hash, bytecode)
+                    })
             })
             .collect(),
+        copy_events: block.copy_events.clone(),
+        ..Default::default()
     }
 }
