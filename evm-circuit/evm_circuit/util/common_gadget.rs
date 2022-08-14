@@ -20,12 +20,19 @@ use eth_types::{Field, ToLittleEndian, ToScalar, U256};
 use halo2_proofs::plonk::{Error, Expression};
 use std::convert::TryInto;
 
+// * 约束在同一个call context中的execution state
+// * 通过`lookup opcode`和`verifies the execution state is responsible for it`
+// * 最后计算`gas_cost`，并且约束状态转换（state transition）
 /// Construction of execution state that stays in the same call context, which
 /// lookups the opcode and verifies the execution state is responsible for it,
 /// then calculates the gas_cost and constrain the state transition.
 #[derive(Clone, Debug)]
+// ! 这个有一点像在同一个call context，会做的所有约束
+// * 就是ops都在一个call里面发生
 pub(crate) struct SameContextGadget<F> {
     opcode: Cell<F>,
+    // * 这是一个math gadget -> 0xParc某一节貌似也提到过
+    // * 主要就是check某个范围（table的区间..等等）
     sufficient_gas_left: RangeCheckGadget<F, N_BYTES_GAS>,
 }
 
@@ -36,6 +43,9 @@ impl<F: Field> SameContextGadget<F> {
         step_state_transition: StepStateTransition<F>,
     ) -> Self {
         cb.opcode_lookup(opcode.expr(), 1.expr());
+        // ! 所以cb类似于meta，里面都有很多API可以直接用来写电路
+        // * 比如这里的add lookup，就是添加lookup table
+        // * 这个代码库极度复杂
         cb.add_lookup(
             "Responsible opcode lookup",
             Lookup::Fixed {
