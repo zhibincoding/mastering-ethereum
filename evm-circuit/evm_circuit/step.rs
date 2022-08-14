@@ -16,6 +16,8 @@ use halo2_proofs::{
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+// * 主要的execution state -> 所有的initial/end state、opcode、error case
+// * 作为EVM state machine transition的一个过程，都要被添加进去
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, EnumIter)]
 pub enum ExecutionState {
@@ -28,6 +30,7 @@ pub enum ExecutionState {
     ADD_SUB,     // ADD, SUB
     MUL_DIV_MOD, // MUL, DIV, MOD
     SDIV_SMOD,   // SDIV, SMOD
+    // ! 在这里添加opcode的枚举项
     SHL_SHR,     // SHL, SHR
     ADDMOD,
     MULMOD,
@@ -39,6 +42,8 @@ pub enum ExecutionState {
     BITWISE, // AND, OR, XOR
     NOT,
     BYTE,
+    // * 已经添加了SAR，只不过具体的gadget还没实现而已 -> 这部分我们应该不需要写了
+    // * 所以这里就像一个roadmap，最终zkevm的完整状态（包括error case）都包含进去了，只不过还没实现而已
     SAR,
     SHA3,
     ADDRESS,
@@ -182,6 +187,7 @@ impl ExecutionState {
             Self::ADD_SUB => vec![OpcodeId::ADD, OpcodeId::SUB],
             Self::MUL_DIV_MOD => vec![OpcodeId::MUL, OpcodeId::DIV, OpcodeId::MOD],
             Self::SDIV_SMOD => vec![OpcodeId::SDIV, OpcodeId::SMOD],
+            // ! 定义opcode ID，所有的opcode都在这里
             Self::SHL_SHR => vec![OpcodeId::SHL, OpcodeId::SHR],
             Self::ADDMOD => vec![OpcodeId::ADDMOD],
             Self::MULMOD => vec![OpcodeId::MULMOD],
@@ -193,6 +199,7 @@ impl ExecutionState {
             Self::BITWISE => vec![OpcodeId::AND, OpcodeId::OR, OpcodeId::XOR],
             Self::NOT => vec![OpcodeId::NOT],
             Self::BYTE => vec![OpcodeId::BYTE],
+            // * 也已经实现，所以我们不需要重复工作
             Self::SAR => vec![OpcodeId::SAR],
             Self::SHA3 => vec![OpcodeId::SHA3],
             Self::ADDRESS => vec![OpcodeId::ADDRESS],
