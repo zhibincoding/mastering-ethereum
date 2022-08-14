@@ -40,22 +40,36 @@ use eth_types::{Field, ToLittleEndian, U256};
 // * 应该是在使用halo2 api写电路过程中，可能会遇到的所有error case
 use halo2_proofs::plonk::Error;
 
-
+// ! 可以直接参考`ShrWordsGadget`: https://www.overleaf.com/project/62d1ba4a752d1fcbe66e9340
 /// ShlShrGadget verifies opcode SHL and SHR.
 /// For SHL, verify pop1 * (2^pop2) == push;
 /// For SHR, verify pop1 / (2^pop2) = push;
 /// when pop1, pop2, push are 256-bit words.
 #[derive(Clone, Debug)]
 pub(crate) struct ShlShrGadget<F> {
+  // * 貌似可以直接参考: https://www.overleaf.com/project/62d1ba4a752d1fcbe66e9340
+  // * 在同一个call context里面，约束state transition
   same_context: SameContextGadget<F>,
+  // ! 这些都是word
+  // * 也就意味着256-bit
+  // ! 不太清楚这里为什么有一堆除法运算的数据，后面可以看看怎么用的
+  // ! 我估计是在bitwise shift中间操作的时候，进行的一堆中间计算过程
+  // ! 这些是SHL_SHR的中间计算过程 -> quotient * divisor + remainder = dividend (% 2^256)
+  // * 商
   quotient: util::Word<F>,
+  // * 除数
   divisor: util::Word<F>,
+  // * 余数
   remainder: util::Word<F>,
+  // * 股息
   dividend: util::Word<F>,
   /// Shift word
+  // * shift和shf0都在spec里有定义
   shift: util::Word<F>,
   /// First byte of shift word
   shf0: Cell<F>,
+  // * 👆上面的都是spec里面，用来输入gen_witness函数，生成witness的参数
+  // * 👇下面的都是一些证明时需要用到的gadget
   /// Gadget that verifies quotient * divisor + remainder = dividend
   mul_add_words: MulAddWordsGadget<F>,
   /// Check if divisor is zero
