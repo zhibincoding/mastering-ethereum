@@ -1,23 +1,45 @@
 use crate::{
+  // * 在zkevm-circuits/src/evm_circuit.rs文件下
+  // * 可以理解这是一个evm circuit实现，包裹了所有evm circuit内部的组件
+  // * 所以可以从这里面导入所有的context模块
   evm_circuit::{
+  // ! 在这里导入的都是src/evm_circuit/之下的文件
+      // * 注册所有opcode和error case的那个struct
       execution::ExecutionGadget,
+      // * 也是所有opcode的enum
       step::ExecutionState,
+      // * 会有7个tables：Fixed、Tx、RW、Bytecode、Block、Byte、CopyTable
+      // * FixedTableTag貌似也是一个有用的工具，我们之前看到的PoW2也在里面，不过暂不清楚实际作用是什么
       table::{FixedTableTag, Lookup},
       util::{
+          // * 1.分别导入util.rs这个文件
+          // * 2.以及util/文件夹内的不同.rs模块 -> 都是一些gadget工具
+          // *   比如`common gadget`, `constraint builder`, `math gadget`, `memory gadget`
           self,
           common_gadget::SameContextGadget,
           constraint_builder::{ConstraintBuilder, StepStateTransition, Transition::Delta},
+          // * 这个是util.rs内的
           from_bytes,
           math_gadget::{IsZeroGadget, LtWordGadget, MulAddWordsGadget},
+          // * 这个也是util.rs内的
           sum, CachedRegion, Cell,
       },
+      // * witness.rs文件 -> 里面有各种bus-mapping转换的zkevm trace数据
       witness::{Block, Call, ExecStep, Transaction},
   },
+  // ! 这个直接导入src/路径下的util，与evm_circuit/同一路径
   util::Expr,
 };
+// * 用来mapping不同的opcode -> 使用OpcodeId
 use bus_mapping::evm::OpcodeId;
+// * 这里应该是一些直接在EVM定义的数据类型
+// * Ethereum and Evm types used to deserialize responses from web3 / geth
+// * 👆对应注释说是用来`deserialize responses`
 use eth_types::{Field, ToLittleEndian, U256};
+// * 是一个enums
+// * 应该是在使用halo2 api写电路过程中，可能会遇到的所有error case
 use halo2_proofs::plonk::Error;
+
 
 /// ShlShrGadget verifies opcode SHL and SHR.
 /// For SHL, verify pop1 * (2^pop2) == push;
