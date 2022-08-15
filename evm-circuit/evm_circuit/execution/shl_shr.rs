@@ -80,11 +80,19 @@ pub(crate) struct ShlShrGadget<F> {
   remainder_lt_divisor: LtWordGadget<F>,
 }
 
-// * 貌似每个opcode都要这样实现一个自己OpcodeGadget
+// * 每个opcode都要这样实现一个自己OpGadget
 // * 然后里面分别有configure和assign（用来写constraint）
+
+// * 继承了（不知道能不能这样说）ExecutionGadget trait的impl
+// * 可以共享这个trait内定义的所有behavior
+// * 所有opcode的通用写法应该都是这样 -> 定义两个const、两个function
+// * 接下来我们要把所有const和function的含义和作用给搞懂
+
 impl<F: Field> ExecutionGadget<F> for ShlShrGadget<F> {
+  // * gadget的名字？
   const NAME: &'static str = "SHL_SHR";
 
+  // * execution state -> 从step.rs文件的ExecutionState enum中取出对应的op
   const EXECUTION_STATE: ExecutionState = ExecutionState::SHL_SHR;
 
   fn configure(cb: &mut ConstraintBuilder<F>) -> Self {
