@@ -95,22 +95,40 @@ impl<F: Field> ExecutionGadget<F> for ShlShrGadget<F> {
   // * execution state -> 从step.rs文件的ExecutionState enum中取出对应的op
   const EXECUTION_STATE: ExecutionState = ExecutionState::SHL_SHR;
 
+  // * ConstraintBuilder顾名思义，用来构造约束
+  // * 跟ConstraintSystem一样，封装了很多API，可以用它们构造不同的constraint
+  // ! 这两个函数的参数都是固定的，在trait中已经定义好
   fn configure(cb: &mut ConstraintBuilder<F>) -> Self {
+      // ! 感觉需要理解halo2里面cell这个概念 -> 再往上就要懂Plonkish的一系列东西
+      // * 我感觉cell可能是halo2 table里面的一个元素，query cell就是把这个元素拿出来
+      // * 不知道opcode cell在哪个column里（advice还是instance）
       let opcode = cb.query_cell();
+      // * 确定是哪个opcode -> shl还是shr
       let is_shl = OpcodeId::SHR.expr() - opcode.expr();
       let is_shr = 1.expr() - is_shl.expr();
 
+      // * 不知道query word是什么，也是从table里面拿cell吗？
+      // * 还是有一个专门存word的地方
       let quotient = cb.query_word();
       let divisor = cb.query_word();
       let remainder = cb.query_word();
       let dividend = cb.query_word();
       let shift = cb.query_word();
+      // * 也从table里面拿出cell
       let shf0 = cb.query_cell();
 
+      // * 有点像做初始化
+      // * 1）比如这个就是`加法门`和`乘法门`的gadget
+      // *    用来构建和约束 -> quotient * divisor + remainder = dividend
       let mul_add_words =
+          // * 为什么传入这四个参数就足够了，不需要指定计算方式吗（+和*）？
+          // * 因为我并没有在math gadget里面看到这个gadget的修改记录
           MulAddWordsGadget::construct(cb, [&quotient, &divisor, &remainder, &dividend]);
+      // * 检查`divisor`是否为0
       let divisor_is_zero = IsZeroGadget::construct(cb, sum::expr(&divisor.cells));
+      // * 检查`remainder`是否为0
       let remainder_is_zero = IsZeroGadget::construct(cb, sum::expr(&remainder.cells));
+      // * 当divisor不为0的时候，检查remainder < divisor是否成立
       let remainder_lt_divisor = LtWordGadget::construct(cb, &remainder, &divisor);
 
       // Constrain stack pops and pushes as:
