@@ -132,8 +132,9 @@ impl<F: Field> ExecutionGadget<F> for ShlShrGadget<F> {
       let remainder_lt_divisor = LtWordGadget::construct(cb, &remainder, &divisor);
 
       // Constrain stack pops and pushes as:
-      // - for SHL, two pops are shift and quotient, and push is dividend.
-      // - for SHR, two pops are shift and dividend, and push is quotient.
+      // - for SHL, two pops are shift and quotient（商）, and push is dividend（除）.
+      // - for SHR, two pops are shift and dividend（除）, and push is quotient（商）.
+      // * 两个POP，一个PUSH
       cb.stack_pop(shift.expr());
       cb.stack_pop(is_shl.expr() * quotient.expr() + is_shr.expr() * dividend.expr());
       cb.stack_push(
@@ -141,6 +142,9 @@ impl<F: Field> ExecutionGadget<F> for ShlShrGadget<F> {
               + is_shr.expr() * quotient.expr() * (1.expr() - divisor_is_zero.expr()),
       );
 
+      // ! 这里具体构造的约束有一点看不懂，可能需要结合python spec代码
+      // * require_zero貌似是一个构造constraint的API
+      // * 构造的前提是，需要等式关系最终是0
       cb.require_zero(
           "shift == shift.cells[0] when divisor != 0",
           (1.expr() - divisor_is_zero.expr()) * (shift.expr() - shift.cells[0].expr()),
@@ -163,9 +167,13 @@ impl<F: Field> ExecutionGadget<F> for ShlShrGadget<F> {
 
       // Constrain divisor_lo == 2^shf0 when shf0 < 128, and
       // divisor_hi == 2^(128 - shf0) otherwise.
+      // * 类似于SAR的思路，把数据分成low和high
+      // * 前16个数据是low，后16个数据是high
       let divisor_lo = from_bytes::expr(&divisor.cells[..16]);
       let divisor_hi = from_bytes::expr(&divisor.cells[16..]);
       cb.condition(1.expr() - divisor_is_zero.expr(), |cb| {
+          // * 添加一个lookup table -> 暂不清楚具体作用
+          // * Pow2是math gadget里面新增加的gadget
           cb.add_lookup(
               "Pow2 lookup of shf0, divisor_lo and divisor_hi",
               Lookup::Fixed {
@@ -175,6 +183,8 @@ impl<F: Field> ExecutionGadget<F> for ShlShrGadget<F> {
           );
       });
 
+      // * 约束每一步的state transition -> 有一些固定的参数
+      // * 主要就是rw、pc、stack pointer、gas的数量要正确（opcode一般在EIP里定义）
       let step_state_transition = StepStateTransition {
           rw_counter: Delta(3.expr()),
           program_counter: Delta(1.expr()),
@@ -183,8 +193,11 @@ impl<F: Field> ExecutionGadget<F> for ShlShrGadget<F> {
           ..Default::default()
       };
 
+      // * 所以sameContextGadget主要就是用来约束上面这个
       let same_context = SameContextGadget::construct(cb, opcode, step_state_transition);
 
+      // * 最后return的数据 -> 拿到所有configure出来的结果
+      // * 在下一个函数中assign
       Self {
           same_context,
           quotient,
