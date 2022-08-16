@@ -847,17 +847,21 @@ fn generate_lagrange_base_polynomial<F: FieldExt>(
 
 #[derive(Clone, Debug)]
 pub struct SarWordsGadget<F> {
-  a: util::Word<F>,
-  shift: util::Word<F>,
-  b: util::Word<F>,
-  a_slice_front: [Cell<F>; 32],
-  a_slice_back: [Cell<F>; 32],
-  shift_div_by_64: Cell<F>,
-  shift_mod_by_64_div_by_8: Cell<F>,
-  shift_mod_by_64_decpow: Cell<F>, // means 2^(8-shift_mod_by_64)
-  shift_mod_by_64_pow: Cell<F>,    // means 2^shift_mod_by_64
-  shift_mod_by_8: Cell<F>,
-  is_neg: Cell<F>,
+    // * input和output
+    a: util::Word<F>,
+    shift: util::Word<F>,
+    b: util::Word<F>,
+    // * 拆分的high和low数据
+    a_slice_front: [Cell<F>; 32],
+    a_slice_back: [Cell<F>; 32],
+    // * 进行中间计算的字段，详见markdown
+    shift_div_by_64: Cell<F>,
+    shift_mod_by_64_div_by_8: Cell<F>,
+    shift_mod_by_64_decpow: Cell<F>, // means 2^(8-shift_mod_by_64)
+    shift_mod_by_64_pow: Cell<F>,    // means 2^shift_mod_by_64
+    shift_mod_by_8: Cell<F>,
+    // * 判断是否为负数 -> SAR负数 top bit为1
+    is_neg: Cell<F>,
 }
 impl<F: FieldExt> SarWordsGadget<F> {
   pub(crate) fn construct(
