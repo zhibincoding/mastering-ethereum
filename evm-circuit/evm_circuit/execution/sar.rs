@@ -101,12 +101,17 @@ impl<F: FieldExt> ExecutionGadget<F> for SarGadget<F> {
 #[cfg(test)]
 mod test {
     use crate::evm_circuit::{
+        // * 最新版本已经将`run_test_circuit_incomplete_fixed_table`移除
+        // * 参考Shl_Shr，主要使用`test_util::run_test_circuits`
         test::{rand_word, run_test_circuit_incomplete_fixed_table},
+        // * 应该是正常导入
         witness,
     };
+    // ! 这部分文件的路径也发生了改变
     use bus_mapping::{bytecode, eth_types::Word, evm::OpcodeId};
     use rand::Rng;
 
+    // * 如果这里测试的代码没有问题，那我们只需要重新引入bytecode即可
     fn test_ok(opcode: OpcodeId, a: Word, shift: Word) {
         let bytecode = bytecode! {
             PUSH32(a)
@@ -114,13 +119,16 @@ mod test {
             #[start]
             .write_op(opcode)
             STOP
+            // * 跟我们在前端测试是一样的步骤 -> PUSH两个数据进去，然后调用SAR
         };
         let block = witness::build_block_from_trace_code_at_start(&bytecode);
+        // ! 这部分的代码需要用`run_test_circuits`替换掉
         assert_eq!(run_test_circuit_incomplete_fixed_table(block), Ok(()));
     }
 
     #[test]
     fn sar_gadget_simple() {
+        // * test_ok是一个样板函数 -> 这里调用了两次，而且分别传入了不同的真实值
         test_ok(OpcodeId::SAR, 0x02FF.into(), 0x1.into());
         test_ok(
             OpcodeId::SAR,
@@ -134,6 +142,8 @@ mod test {
         let a = rand_word();
         let mut rng = rand::thread_rng();
         let shift = rng.gen_range(0..=255);
+        // ! 一样 -> 所有如果这个测试文件有问题，我们只需要重构test_ok即可
+        // * 所有opcode的测试函数，貌似都叫这个名字
         test_ok(OpcodeId::SAR, a, shift.into());
     }
 
