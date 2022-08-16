@@ -1109,18 +1109,22 @@ impl<F: FieldExt> SarWordsGadget<F> {
         shift: Word,
         b: Word,
     ) -> Result<(), Error> {
-      self.assign_witness(region, offset, &a, &shift)?;
-      self.a.assign(region, offset, Some(a.to_le_bytes()))?;
-      self.shift
-          .assign(region, offset, Some(shift.to_le_bytes()))?;
-      self.b.assign(region, offset, Some(b.to_le_bytes()))?;
-      Ok(())
-  }
+        // * 输入a和shift
+        self.assign_witness(region, offset, &a, &shift)?;
+        // * 对a和b进行assign
+        self.a.assign(region, offset, Some(a.to_le_bytes()))?;
+        self.shift
+            .assign(region, offset, Some(shift.to_le_bytes()))?;
+        // * 最后对b进行assign
+        self.b.assign(region, offset, Some(b.to_le_bytes()))?;
+        Ok(())
+    }
 
     pub(crate) fn b(&self) -> &util::Word<F> {
         &self.b
     }
 
+    // * 这里的assign_witness和上面的assign有点区别
     fn assign_witness(
         &self,
         region: &mut Region<'_, F>,
@@ -1128,84 +1132,87 @@ impl<F: FieldExt> SarWordsGadget<F> {
         wa: &Word,
         wshift: &Word,
     ) -> Result<(), Error> {
-      let a8s = wa.to_le_bytes();
-      let is_neg = a8s[31] >= 128;
-      let shift = wshift.to_le_bytes()[0] as u128;
-      let shift_div_by_64 = shift / 64;
-      let shift_mod_by_64_div_by_8 = shift % 64 / 8;
-      let shift_mod_by_64 = shift % 64;
-      let shift_mod_by_64_pow = 1u128 << shift_mod_by_64;
-      let shift_mod_by_64_decpow =
-          (1u128 << 64) / (shift_mod_by_64_pow as u128);
-      let shift_mod_by_8 = shift % 8;
-      let mut a_slice_front = [0u8; 32];
-      let mut a_slice_back = [0u8; 32];
-      for virtual_idx in 0..4 {
-          let mut tmp_a: u64 = 0;
-          for idx in 0..8 {
-              let now_idx = virtual_idx * 8 + idx;
-              tmp_a += (1u64 << (8 * idx)) * (a8s[now_idx] as u64);
-          }
-          let mut slice_back = if shift_mod_by_64 == 0 {
-              0
-          } else {
-              tmp_a % (1u64 << shift_mod_by_64)
-          };
-          let mut slice_front = if shift_mod_by_64 == 0 {
-              tmp_a
-          } else {
-              tmp_a / (1u64 << shift_mod_by_64)
-          };
-          for idx in 0..8 {
-              let now_idx = virtual_idx * 8 + idx;
-              a_slice_back[now_idx] = (slice_back % (1 << 8)) as u8;
-              a_slice_front[now_idx] = (slice_front % (1 << 8)) as u8;
-              slice_back >>= 8;
-              slice_front >>= 8;
-          }
-      }
-      a_slice_front
-          .iter()
-          .zip(self.a_slice_front.iter())
-          .try_for_each(|(bt, assignee)| -> Result<(), Error> {
-              assignee.assign(region, offset, Some(F::from(*bt as u64)))?;
-              Ok(())
-          })?;
-      a_slice_back
-          .iter()
-          .zip(self.a_slice_back.iter())
-          .try_for_each(|(bt, assignee)| -> Result<(), Error> {
-              assignee.assign(region, offset, Some(F::from(*bt as u64)))?;
-              Ok(())
-          })?;
-      self.shift_div_by_64.assign(
-          region,
-          offset,
-          Some(F::from_u128(shift_div_by_64)),
-      )?;
-      self.shift_mod_by_64_div_by_8.assign(
-          region,
-          offset,
-          Some(F::from_u128(shift_mod_by_64_div_by_8)),
-      )?;
-      self.shift_mod_by_64_decpow.assign(
-          region,
-          offset,
-          Some(F::from_u128(shift_mod_by_64_decpow)),
-      )?;
-      self.shift_mod_by_64_pow.assign(
-          region,
-          offset,
-          Some(F::from_u128(shift_mod_by_64_pow)),
-      )?;
-      self.shift_mod_by_8.assign(
-          region,
-          offset,
-          Some(F::from_u128(shift_mod_by_8)),
-      )?;
-      self.is_neg
-          .assign(region, offset, Some(F::from(is_neg as u64)))?;
+        // * 逐步计算，生成一堆数据
+        let a8s = wa.to_le_bytes();
+        let is_neg = a8s[31] >= 128;
+        let shift = wshift.to_le_bytes()[0] as u128;
+        let shift_div_by_64 = shift / 64;
+        let shift_mod_by_64_div_by_8 = shift % 64 / 8;
+        let shift_mod_by_64 = shift % 64;
+        let shift_mod_by_64_pow = 1u128 << shift_mod_by_64;
+        let shift_mod_by_64_decpow =
+            (1u128 << 64) / (shift_mod_by_64_pow as u128);
+        let shift_mod_by_8 = shift % 8;
+        // * 拆成front和back
+        let mut a_slice_front = [0u8; 32];
+        let mut a_slice_back = [0u8; 32];
+        for virtual_idx in 0..4 {
+            let mut tmp_a: u64 = 0;
+            for idx in 0..8 {
+                let now_idx = virtual_idx * 8 + idx;
+                tmp_a += (1u64 << (8 * idx)) * (a8s[now_idx] as u64);
+            }
+            let mut slice_back = if shift_mod_by_64 == 0 {
+                0
+            } else {
+                tmp_a % (1u64 << shift_mod_by_64)
+            };
+            let mut slice_front = if shift_mod_by_64 == 0 {
+                tmp_a
+            } else {
+                tmp_a / (1u64 << shift_mod_by_64)
+            };
+            for idx in 0..8 {
+                let now_idx = virtual_idx * 8 + idx;
+                a_slice_back[now_idx] = (slice_back % (1 << 8)) as u8;
+                a_slice_front[now_idx] = (slice_front % (1 << 8)) as u8;
+                slice_back >>= 8;
+                slice_front >>= 8;
+            }
+        }
+        // * 对每个中间数据做assign -> 跟上面shift/b/a的assign有点像
+        a_slice_front
+            .iter()
+            .zip(self.a_slice_front.iter())
+            .try_for_each(|(bt, assignee)| -> Result<(), Error> {
+                assignee.assign(region, offset, Some(F::from(*bt as u64)))?;
+                Ok(())
+            })?;
+        a_slice_back
+            .iter()
+            .zip(self.a_slice_back.iter())
+            .try_for_each(|(bt, assignee)| -> Result<(), Error> {
+                assignee.assign(region, offset, Some(F::from(*bt as u64)))?;
+                Ok(())
+            })?;
+        self.shift_div_by_64.assign(
+            region,
+            offset,
+            Some(F::from_u128(shift_div_by_64)),
+        )?;
+        self.shift_mod_by_64_div_by_8.assign(
+            region,
+            offset,
+            Some(F::from_u128(shift_mod_by_64_div_by_8)),
+        )?;
+        self.shift_mod_by_64_decpow.assign(
+            region,
+            offset,
+            Some(F::from_u128(shift_mod_by_64_decpow)),
+        )?;
+        self.shift_mod_by_64_pow.assign(
+            region,
+            offset,
+            Some(F::from_u128(shift_mod_by_64_pow)),
+        )?;
+        self.shift_mod_by_8.assign(
+            region,
+            offset,
+            Some(F::from_u128(shift_mod_by_8)),
+        )?;
+        self.is_neg
+            .assign(region, offset, Some(F::from(is_neg as u64)))?;
 
-      Ok(())
-  }
+        Ok(())
+    }
 }
