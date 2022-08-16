@@ -285,11 +285,14 @@ impl<F: Field> ExecutionGadget<F> for ShlShrGadget<F> {
     }
 }
 
+
 #[cfg(test)]
 mod test {
+    // * 测试文件
     use crate::{evm_circuit::test::rand_word, test_util::run_test_circuits};
     use eth_types::evm_types::OpcodeId;
     use eth_types::{bytecode, Word};
+    // * test的context，我看有chainID，还有geth_trace -> 进行测试应该主要就需要导入这些数据
     use mock::TestContext;
 
     fn test_ok(opcode: OpcodeId, pop1: Word, pop2: Word) {
