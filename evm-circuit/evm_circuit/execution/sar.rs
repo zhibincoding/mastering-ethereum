@@ -100,48 +100,48 @@ impl<F: FieldExt> ExecutionGadget<F> for SarGadget<F> {
 
 #[cfg(test)]
 mod test {
-  use crate::evm_circuit::{
-      test::{rand_word, run_test_circuit_incomplete_fixed_table},
-      witness,
-  };
-  use bus_mapping::{bytecode, eth_types::Word, evm::OpcodeId};
-  use rand::Rng;
+    use crate::evm_circuit::{
+        test::{rand_word, run_test_circuit_incomplete_fixed_table},
+        witness,
+    };
+    use bus_mapping::{bytecode, eth_types::Word, evm::OpcodeId};
+    use rand::Rng;
 
-  fn test_ok(opcode: OpcodeId, a: Word, shift: Word) {
-      let bytecode = bytecode! {
-          PUSH32(a)
-          PUSH32(shift)
-          #[start]
-          .write_op(opcode)
-          STOP
-      };
-      let block = witness::build_block_from_trace_code_at_start(&bytecode);
-      assert_eq!(run_test_circuit_incomplete_fixed_table(block), Ok(()));
-  }
+    fn test_ok(opcode: OpcodeId, a: Word, shift: Word) {
+        let bytecode = bytecode! {
+            PUSH32(a)
+            PUSH32(shift)
+            #[start]
+            .write_op(opcode)
+            STOP
+        };
+        let block = witness::build_block_from_trace_code_at_start(&bytecode);
+        assert_eq!(run_test_circuit_incomplete_fixed_table(block), Ok(()));
+    }
 
-  #[test]
-  fn sar_gadget_simple() {
-      test_ok(OpcodeId::SAR, 0x02FF.into(), 0x1.into());
-      test_ok(
-          OpcodeId::SAR,
-          Word::from_big_endian(&[255u8; 32]),
-          0x73.into(),
-      );
-  }
+    #[test]
+    fn sar_gadget_simple() {
+        test_ok(OpcodeId::SAR, 0x02FF.into(), 0x1.into());
+        test_ok(
+            OpcodeId::SAR,
+            Word::from_big_endian(&[255u8; 32]),
+            0x73.into(),
+        );
+    }
 
-  #[test]
-  fn sar_gadget_rand() {
-      let a = rand_word();
-      let mut rng = rand::thread_rng();
-      let shift = rng.gen_range(0..=255);
-      test_ok(OpcodeId::SAR, a, shift.into());
-  }
+    #[test]
+    fn sar_gadget_rand() {
+        let a = rand_word();
+        let mut rng = rand::thread_rng();
+        let shift = rng.gen_range(0..=255);
+        test_ok(OpcodeId::SAR, a, shift.into());
+    }
 
-  //this testcase manage to check the split is correct.
-  #[test]
-  fn sar_gadget_constant_shift() {
-      let a = rand_word();
-      test_ok(OpcodeId::SAR, a, 8.into());
-      test_ok(OpcodeId::SAR, a, 64.into());
-  }
+    //this testcase manage to check the split is correct.
+    #[test]
+    fn sar_gadget_constant_shift() {
+        let a = rand_word();
+        test_ok(OpcodeId::SAR, a, 8.into());
+        test_ok(OpcodeId::SAR, a, 64.into());
+    }
 }
