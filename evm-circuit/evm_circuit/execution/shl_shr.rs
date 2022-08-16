@@ -219,19 +219,25 @@ impl<F: Field> ExecutionGadget<F> for ShlShrGadget<F> {
     }
 
     fn assign_exec_step(
+        // * 这些都是trait中固定的参数
         &self,
         region: &mut CachedRegion<'_, '_, F>,
         offset: usize,
+        // * 全都是witness.rs中的数据类型
         block: &Block<F>,
         _: &Transaction,
         _: &Call,
         step: &ExecStep,
     ) -> Result<(), Error> {
+        // * assign execution step
         self.same_context.assign_exec_step(region, offset, step)?;
+        // * 貌似为了拿到对应的数据 -> indices、pop1 pop2 push、shf0
         let indices = [step.rw_indices[0], step.rw_indices[1], step.rw_indices[2]];
         let [pop1, pop2, push] = indices.map(|idx| block.rws[idx].stack_value());
         let shf0 = pop1.to_le_bytes()[0];
+        // * 这段数据之前使用过mul_add_gadget，可能就是为了让他们含有这个属性，在这里能够使用
         let (quotient, divisor, remainder, dividend) = match step.opcode.unwrap() {
+            // * 应该分别是SHL和SHR的计算过程
             OpcodeId::SHL => (
                 pop2,
                 if U256::from(shf0) == pop1 {
@@ -248,10 +254,12 @@ impl<F: Field> ExecutionGadget<F> for ShlShrGadget<F> {
                 } else {
                     U256::from(0)
                 };
+                // ! SHR有这段约束关系
                 (push, divisor, pop2 - push * divisor, pop2)
             }
             _ => unreachable!(),
         };
+        // ! 各种约束，这部分没有完全理解
         self.quotient
             .assign(region, offset, Some(quotient.to_le_bytes()))?;
         self.divisor
