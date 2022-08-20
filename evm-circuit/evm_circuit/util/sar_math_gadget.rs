@@ -961,8 +961,6 @@ impl<F: Field> ShrWordsGadget<F> {
                 a64s[idx].expr(),
                 a64s_lo[idx].expr() + a64s_hi[idx].expr() * p_lo.expr(),
             );
-
-            // ! todo -> 需要增加一个p_top的约束
         }
 
         // a64s_lo[idx] < p_lo
@@ -1575,5 +1573,224 @@ impl<F: Field> AbsWordGadget<F> {
 
     pub(crate) fn is_neg(&self) -> &LtGadget<F, 1> {
         &self.is_neg
+    }
+}
+
+/// Construction of word shift right for `a >> shift == b`.
+#[derive(Clone, Debug)]
+pub(crate) struct SarWordsGadget<F> {
+    a: util::Word<F>,
+    shift: util::Word<F>,
+    b: util::Word<F>,
+    // four 64-bit limbs of word `a`
+    a64s: [Cell<F>; 4],
+    // four 64-bit limbs of word `b`
+    b64s: [Cell<F>; 4],
+    // Each of the four `a64s` limbs is split into two parts (`a64s_lo` and `a64s_hi`) at
+    // position `shf_mod64`. `a64s_lo` is the lower `shf_mod64` bits.
+    a64s_lo: [Cell<F>; 4],
+    // `a64s_hi` is the higher `64 - shf_mod64` bits.
+    a64s_hi: [Cell<F>; 4],
+    // shift[0] / 64
+    shf_div64: Cell<F>,
+    // shift[0] % 64
+    shf_mod64: Cell<F>,
+    // 1 << shf_mod64
+    p_lo: Cell<F>,
+    // 1 << (64 - shf_mod64)
+    p_hi: Cell<F>,
+    // ! todo
+    p_top: Cell<F>,
+    // ! todo
+    is_neg: Cell<F>,
+    // shift < 256
+    shf_lt256: IsZeroGadget<F>,
+    // shf_div64 == 0
+    shf_div64_eq0: IsZeroGadget<F>,
+    // shf_div64 == 1
+    shf_div64_eq1: IsEqualGadget<F>,
+    // shf_div64 == 2
+    shf_div64_eq2: IsEqualGadget<F>,
+    // shf_div64 == 3
+    shf_div64_eq3: IsEqualGadget<F>,
+    // a64s_lo[idx] < p_lo
+    a64s_lo_lt_p_lo: [LtGadget<F, 16>; 4],
+}
+
+impl<F: Field> SarWordsGadget<F> {
+    pub(crate) fn construct(
+        cb: &mut ConstraintBuilder<F>,
+        a: util::Word<F>,
+        shift: util::Word<F>,
+    ) -> Self {
+        // ! todo -> 主要的工作量在这里
+        let b = cb.query_word();
+        let a64s = array_init(|_| cb.query_cell());
+        // ! 需要做一些修改 -> [0xFFFFFFFFFFFFFFFF] * 4 if is_neg, [0] * 4 otherwise
+        let b64s = array_init(|_| cb.query_cell());
+        let a64s_lo = array_init(|_| cb.query_cell());
+        let a64s_hi = array_init(|_| cb.query_cell());
+        let shf_div64 = cb.query_cell();
+        let shf_mod64 = cb.query_cell();
+        let p_lo = cb.query_cell();
+        let p_hi = cb.query_cell();
+        // ! new added
+        let p_top = cb.query_cell();
+        let is_neg = cb.query_bool();
+        // @ 第一部分
+        // * 计算shf_lt256
+        // * 对`a64s[idx]`和`b64s[idx]`构造约束
+        let shf_lt256 = IsZeroGadget::construct(cb, sum::expr(&shift.cells[1..32]));
+        for idx in 0..4 {
+            let offset = idx * N_BYTES_U64;
+
+            // a64s constraint
+            cb.require_equal(
+                "a64s[idx] == from_bytes(a[8 * idx..8 * (idx + 1)])",
+                a64s[idx].expr(),
+                from_bytes::expr(&a.cells[offset..offset + N_BYTES_U64]),
+            );
+
+            // b64s constraint
+            cb.require_equal(
+                "b64s[idx] * shf_lt256 + is_neg * (1 - shf_lt256) * 0xFFFFFFFFFFFFFFFF == from_bytes(b[8 * idx..8 * (idx + 1)])",
+                b64s[idx].expr() * shf_lt256.expr(),
+                from_bytes::expr(&b.cells[offset..offset + N_BYTES_U64]),
+            );
+            // @ 第二部分
+            // * 构造a64s_lo和a64s_hi和a64s关系的约束
+            cb.require_equal(
+                "a64s[idx] == a64s_lo[idx] + a64s_hi[idx] * p_lo",
+                a64s[idx].expr(),
+                a64s_lo[idx].expr() + a64s_hi[idx].expr() * p_lo.expr(),
+            );
+        }
+
+        // * 构造a64s_lo的约束，并且要求必须小于p_lo
+        // a64s_lo[idx] < p_lo
+        let a64s_lo_lt_p_lo = array_init(|idx| {
+            let lt = LtGadget::construct(cb, a64s_lo[idx].expr(), p_lo.expr());
+            cb.require_equal("a64s_lo[idx] < p_lo", lt.expr(), 1.expr());
+            lt
+        });
+
+        // @ 第三部分
+        // * create four IsZero gadgets
+        // merge contraints
+        let shf_div64_eq0 = IsZeroGadget::construct(cb, shf_div64.expr());
+        let shf_div64_eq1 = IsEqualGadget::construct(cb, shf_div64.expr(), 1.expr());
+        let shf_div64_eq2 = IsEqualGadget::construct(cb, shf_div64.expr(), 2.expr());
+        let shf_div64_eq3 = IsEqualGadget::construct(cb, shf_div64.expr(), 3.expr());
+
+        // * 分别约束a64s[0]到a64s[3]
+        cb.require_equal(
+            "Constrain b64s[0]",
+            b64s[0].expr(),
+            (a64s_hi[0] + a64s_lo[1] * p_hi) * shf_div64_eq0
+                + (a64s_hi[1] + a64s_lo[2] * p_hi) * shf_div64_eq1
+                + (a64s_hi[2] + a64s_lo[3] * p_hi) * shf_div64_eq2
+                + (a64s_hi[3] + p_top) * shf_div64_eq3
+                + is_neg * 0xFFFFFFFFFFFFFFFF * (1 - shf_div64_eq0 - shf_div64_eq1 - shf_div64_eq2 - shf_div64_eq3),
+        );
+        cb.require_equal(
+            "Constrain b64s[1]",
+            b64s[1].expr(),
+            (a64s_hi[1] + a64s_lo[2] * p_hi) * shf_div64_eq0
+                + (a64s_hi[2] + a64s_lo[3] * p_hi) * shf_div64_eq1
+                + (a64s_hi[3] + p_top) * shf_div64_eq2
+                + is_neg * 0xFFFFFFFFFFFFFFFF * (1 - shf_div64_eq0 - shf_div64_eq1 - shf_div64_eq2),
+        );
+        cb.require_equal(
+            "Constrain b64s[2]",
+            b64s[2].expr(),
+            (a64s_hi[2] + a64s_lo[3] * p_hi) * shf_div64_eq0
+                + (a64s_hi[3] + p_top) * shf_div64_eq1
+                + is_neg * 0xFFFFFFFFFFFFFFFF * (1 - shf_div64_eq0 - shf_div64_eq1)
+        );
+        cb.require_equal(
+            "Constrain b64s[3]",
+            b64s[3].expr(),
+            (a64s_hi[3] + p_top) * shf_div64_eq0
+                + is_neg * 0xFFFFFFFFFFFFFFFF * (1 - shf_div64_eq0),
+        );
+
+        // @ 第四部分
+        // shift constraint
+        cb.require_equal(
+            "shift[0] == shf_mod64 + shf_div64 * 64",
+            shift.cells[0].expr(),
+            shf_mod64.expr() + shf_div64.expr() * 64.expr(),
+        );
+
+        // @ 第五部分
+        // p_lo == pow(2, shf_mod64)
+        cb.add_lookup(
+            "Pow2 lookup",
+            Lookup::Fixed {
+                tag: FixedTableTag::Pow2.expr(),
+                values: [shf_mod64.expr(), p_lo.expr(), 0.expr()],
+            },
+        );
+
+        // p_hi == pow(2, 64 - shf_mod64)
+        cb.add_lookup(
+            "Pow2 lookup",
+            Lookup::Fixed {
+                tag: FixedTableTag::Pow2.expr(),
+                values: [64.expr() - shf_mod64.expr(), p_hi.expr(), 0.expr()],
+            },
+        );
+
+        Self {
+            a,
+            shift,
+            b,
+            a64s,
+            b64s,
+            a64s_lo,
+            a64s_hi,
+            shf_div64,
+            shf_mod64,
+            p_lo,
+            p_hi,
+            p_top,
+            is_neg,
+            shf_lt256,
+            shf_div64_eq0,
+            shf_div64_eq1,
+            shf_div64_eq2,
+            shf_div64_eq3,
+            a64s_lo_lt_p_lo,
+        }
+    }
+
+    pub(crate) fn assign(
+        &self,
+        region: &mut CachedRegion<'_, '_, F>,
+        offset: usize,
+        a: Word,
+        shift: Word,
+        b: Word,
+    ) -> Result<(), Error> {
+        self.assign_witness(region, offset, &a, &shift)?;
+        self.a.assign(region, offset, Some(a.to_le_bytes()))?;
+        self.shift
+            .assign(region, offset, Some(shift.to_le_bytes()))?;
+        self.b.assign(region, offset, Some(b.to_le_bytes()))?;
+        Ok(())
+    }
+
+    pub(crate) fn b(&self) -> &util::Word<F> {
+        &self.b
+    }
+
+    fn assign_witness(
+        &self,
+        region: &mut CachedRegion<'_, '_, F>,
+        offset: usize,
+        a: &Word,
+        shift: &Word,
+    ) -> Result<(), Error> {
+        // ! todo
     }
 }
