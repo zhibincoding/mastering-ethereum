@@ -12,9 +12,11 @@ use crate::{
 };
 use array_init::array_init;
 use eth_types::{Field, ToLittleEndian, ToScalar, Word};
+// * https://docs.rs/halo2_proofs/latest/halo2_proofs/plonk/enum.Expression.html#
 use halo2_proofs::plonk::{Error, Expression};
 
 /// Returns `1` when `value == 0`, and returns `0` otherwise.
+// * 判断value是否为0的gadget -> 如果是`0`返回1，否则返回0
 #[derive(Clone, Debug)]
 pub struct IsZeroGadget<F> {
     inverse: Cell<F>,
@@ -937,27 +939,40 @@ impl<F: Field> ShrWordsGadget<F> {
         let p_lo = cb.query_cell();
         let p_hi = cb.query_cell();
         // @ 第一部分
+        // * sum 1-32 cells, is zero? -> 0 return 1
         let shf_lt256 = IsZeroGadget::construct(cb, sum::expr(&shift.cells[1..32]));
         for idx in 0..4 {
+            // * N_BYTES_U64的值是8
+            // * 0, 8, 16, 24, 32 -> 显然是cells的数量
             let offset = idx * N_BYTES_U64;
 
             // a64s constraint
             cb.require_equal(
+                // * 拆分成四个limbs，每一个（a64s[0] .. a64s[3]）会包含8个cell
+                // * 比如idx = 0, 就是a[0 .. 8], offset = 0
+                // * 如果idx = 1, 就是a[8 .. 16], offset = 8
                 "a64s[idx] == from_bytes(a[8 * idx..8 * (idx + 1)])",
+                // * 参考markdown其实就可以直接构造约束，但是我还是想搞懂这里面代码的含义是什么
                 a64s[idx].expr(),
+                // * 如果idx = 0, rhs就是a[0 .. 8]
+                // * 如果idx = 1, rhs就是a[8 .. 16]
                 from_bytes::expr(&a.cells[offset..offset + N_BYTES_U64]),
             );
 
             // b64s constraint
             cb.require_equal(
                 "b64s[idx] * shf_lt256 == from_bytes(b[8 * idx..8 * (idx + 1)])",
+                // * 如果shf_lt256是0 -> 1, b64s[idx]
+                // * 如果shf_lt256是其他数据 -> 0
                 b64s[idx].expr() * shf_lt256.expr(),
+                // * 与a64s相比，貌似只是多了一个shf_lt256
                 from_bytes::expr(&b.cells[offset..offset + N_BYTES_U64]),
             );
 
             // @ 第二部分
             cb.require_equal(
                 "a64s[idx] == a64s_lo[idx] + a64s_hi[idx] * p_lo",
+                // * lhs == rhs
                 a64s[idx].expr(),
                 a64s_lo[idx].expr() + a64s_hi[idx].expr() * p_lo.expr(),
             );
@@ -965,7 +980,11 @@ impl<F: Field> ShrWordsGadget<F> {
 
         // a64s_lo[idx] < p_lo
         let a64s_lo_lt_p_lo = array_init(|idx| {
+            // * 如果`lhs < rhs`返回1，否则返回0
             let lt = LtGadget::construct(cb, a64s_lo[idx].expr(), p_lo.expr());
+            // * 非常聪明
+            // * 如果`<`的关系成立，就返回1 -> 那么只需要让判断关系是否成立的variable和1是一个equal constraint就可以了
+            // * 通过这种方式，我们可以在电路中实现许多复杂的逻辑运算
             cb.require_equal("a64s_lo[idx] < p_lo", lt.expr(), 1.expr());
             lt
         });
@@ -1016,10 +1035,12 @@ impl<F: Field> ShrWordsGadget<F> {
 
         // @ 第五部分
         // p_lo == pow(2, shf_mod64)
-        cb.add_lookup(
+        (
             "Pow2 lookup",
             Lookup::Fixed {
+                // * 添加的table名称
                 tag: FixedTableTag::Pow2.expr(),
+                // * 构造`p_lo == pow(2, shf_mod64)`
                 values: [shf_mod64.expr(), p_lo.expr(), 0.expr()],
             },
         );
@@ -1029,6 +1050,8 @@ impl<F: Field> ShrWordsGadget<F> {
             "Pow2 lookup",
             Lookup::Fixed {
                 tag: FixedTableTag::Pow2.expr(),
+                // * 构造`p_hi == pow(2, 64 - shf_mod64)`
+                // * 第一个元素是填入Pow2的元素，第二个元素是等式左边的元素
                 values: [64.expr() - shf_mod64.expr(), p_hi.expr(), 0.expr()],
             },
         );
