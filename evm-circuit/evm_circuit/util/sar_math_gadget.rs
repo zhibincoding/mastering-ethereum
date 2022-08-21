@@ -1103,23 +1103,30 @@ impl<F: Field> ShrWordsGadget<F> {
         a: &Word,
         shift: &Word,
     ) -> Result<(), Error> {
+        // * 中间变量的计算过程 -> 先构造约束，再进行计算
+        // * SAR与之相比，只多了is_sar is_neg，以及p_top
+        // * SHR与之相比，多了shf_lt256
         let shf0 = shift.to_le_bytes()[0] as usize;
         let shf_div64 = shf0 / 64;
         let shf_mod64 = shf0 % 64;
         let p_lo: u128 = 1 << shf_mod64;
         let p_hi: u128 = 1 << (64 - shf_mod64);
+        // ! 这一步是单独的，在SAR中并没有
         let shf_lt256 = shift
             .to_le_bytes()
             .iter()
             .fold(0, |acc, val| acc + *val as u128)
             - shf0 as u128;
+        // * 拿到a64s
         let a64s = a.0;
+        // * 分别赋值a64s的lo和hi
         let mut a64s_lo = [0_u128; 4];
         let mut a64s_hi = [0_u128; 4];
         for idx in 0..4 {
             a64s_lo[idx] = u128::from(a64s[idx]) % p_lo;
             a64s_hi[idx] = u128::from(a64s[idx]) / p_lo;
         }
+        // * 最后返回b64s的东西 -> 需要参考对应的python代码
         let mut b64s = [0_u128; 4];
         b64s[3 - shf_div64 as usize] = a64s_hi[3];
         for k in 0..3 - shf_div64 {
