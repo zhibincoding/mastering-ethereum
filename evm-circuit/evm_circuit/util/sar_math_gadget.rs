@@ -1664,7 +1664,7 @@ impl<F: Field> SarWordsGadget<F> {
         let p_hi = cb.query_cell();
         // ! new added
         let p_top = cb.query_cell();
-        let is_neg = cb.query_bool();
+        let is_neg = LtGadget::construct(cb, 127.expr(), a.cells[31].expr());
         // @ 第一部分
         // * 计算shf_lt256
         // * 对`a64s[idx]`和`b64s[idx]`构造约束
@@ -1825,7 +1825,6 @@ impl<F: Field> SarWordsGadget<F> {
         // * 在python代码里直接使用了`word_is_neg`这个API，所有我们要找到一个类似的东西
         // ! ToDo: 找到一个word_is_neg的东西
         // * 这个方法用来判断低位是不是1 -> 如果低位是1返回negative
-        let is_neg = LtGadget::construct(cb, 127.expr(), a.cells[31].expr());
         // * 这些是common的部分
         let shf0 = shift.to_le_bytes()[0] as usize;
         let shf_div64 = shf0 / 64;
