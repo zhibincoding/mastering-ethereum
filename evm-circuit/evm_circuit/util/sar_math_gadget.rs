@@ -12,11 +12,9 @@ use crate::{
 };
 use array_init::array_init;
 use eth_types::{Field, ToLittleEndian, ToScalar, Word};
-// * https://docs.rs/halo2_proofs/latest/halo2_proofs/plonk/enum.Expression.html#
 use halo2_proofs::plonk::{Error, Expression};
 
 /// Returns `1` when `value == 0`, and returns `0` otherwise.
-// * 判断value是否为0的gadget -> 如果是`0`返回1，否则返回0
 #[derive(Clone, Debug)]
 pub struct IsZeroGadget<F> {
     inverse: Cell<F>,
@@ -1132,6 +1130,7 @@ impl<F: Field> ShrWordsGadget<F> {
         for k in 0..3 - shf_div64 {
             b64s[k] = a64s_hi[k + shf_div64] + a64s_lo[k + shf_div64 + 1] * p_hi;
         }
+        // * 这部分就是大量重复 + common的东西
         self.a64s
             .iter()
             .zip(a64s.iter())
@@ -1522,6 +1521,7 @@ impl<F: Field> ModGadget<F> {
 
 /// Construction of 256-bit word original and absolute values, which is useful
 /// for opcodes operated on signed values.
+// * 很好，正是我们需要的东西 -> 对signed value的符号位做约束
 #[derive(Clone, Debug)]
 pub(crate) struct AbsWordGadget<F> {
     x: util::Word<F>,
@@ -1629,10 +1629,10 @@ pub(crate) struct SarWordsGadget<F> {
     p_lo: Cell<F>,
     // 1 << (64 - shf_mod64)
     p_hi: Cell<F>,
-    // ! todo
+    // p_top = is_neg * (0xFFFFFFFFFFFFFFFF - p_hi + 1))
     p_top: Cell<F>,
-    // ! todo
-    is_neg: Cell<F>,
+    // is_neg = is_neg(a)
+    is_neg: LtGadget<F, 1>,
     // shift < 256
     shf_lt256: IsZeroGadget<F>,
     // shf_div64 == 0
@@ -1653,10 +1653,8 @@ impl<F: Field> SarWordsGadget<F> {
         a: util::Word<F>,
         shift: util::Word<F>,
     ) -> Self {
-        // ! todo -> 主要的工作量在这里
         let b = cb.query_word();
         let a64s = array_init(|_| cb.query_cell());
-        // ! 需要做一些修改 -> [0xFFFFFFFFFFFFFFFF] * 4 if is_neg, [0] * 4 otherwise
         let b64s = array_init(|_| cb.query_cell());
         let a64s_lo = array_init(|_| cb.query_cell());
         let a64s_hi = array_init(|_| cb.query_cell());
@@ -1683,6 +1681,7 @@ impl<F: Field> SarWordsGadget<F> {
 
             // b64s constraint
             cb.require_equal(
+                // * 这里的等式左边有所不同 -> 多了is_neg这部分代码
                 "b64s[idx] * shf_lt256 + is_neg * (1 - shf_lt256) * 0xFFFFFFFFFFFFFFFF == from_bytes(b[8 * idx..8 * (idx + 1)])",
                 b64s[idx].expr() * shf_lt256.expr(),
                 from_bytes::expr(&b.cells[offset..offset + N_BYTES_U64]),
@@ -1821,6 +1820,85 @@ impl<F: Field> SarWordsGadget<F> {
         a: &Word,
         shift: &Word,
     ) -> Result<(), Error> {
-        // ! todo
+        // * is_sar在这里就是常数1，所以可以把它remove
+        // * 学之前的opcode，写一个判断neg的字符
+        // * 在python代码里直接使用了`word_is_neg`这个API，所有我们要找到一个类似的东西
+        // ! ToDo: 找到一个word_is_neg的东西
+        // * 这个方法用来判断低位是不是1 -> 如果低位是1返回negative
+        let is_neg = LtGadget::construct(cb, 127.expr(), a.cells[31].expr());
+        // * 这些是common的部分
+        let shf0 = shift.to_le_bytes()[0] as usize;
+        let shf_div64 = shf0 / 64;
+        let shf_mod64 = shf0 % 64;
+        let p_lo: u128 = 1 << shf_mod64;
+        let p_hi: u128 = 1 << (64 - shf_mod64);
+        // * 如果是负数 -> 高位补1（就是11110000）
+        // * 0xFFFFFFFFFFFFFFFF + 1是2^256，减去p_hi，得到这种11110000
+        let p_top = is_neg * ((0xFFFFFFFFFFFFFFFF - p_hi + 1));
+        // * a64s和lo hi都是common的部分
+        let a64s = a.0;
+        let mut a64s_lo = [0_u128; 4];
+        let mut a64s_hi = [0_u128; 4];
+        for idx in 0..4 {
+            a64s_lo[idx] = u128::from(a64s[idx]) % p_lo;
+            a64s_hi[idx] = u128::from(a64s[idx]) / p_lo;
+        }
+        // * 基本上没什么问题了，只有一个p_top的区别而已
+        let mut b64s = [0_u128; 4];
+        b64s[3 - shf_div64 as usize] = a64s_hi[3] + p_top;
+        // * 把shift的数据拼起来，形成一个新的数据b
+        for k in 0..3 - shf_div64 {
+            b64s[k] = a64s_hi[k + shf_div64] + a64s_lo[k + shf_div64 + 1] * p_hi;
+        }
+        // * self里面除了a b shift，其他的都要assign进去
+        // * 多了p_top和is_neg
+        self.a64s
+            .iter()
+            .zip(a64s.iter())
+            .map(|(cell, val)| cell.assign(region, offset, Some(F::from(*val))))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.b64s
+            .iter()
+            .zip(b64s.iter())
+            .map(|(cell, val)| cell.assign(region, offset, Some(F::from_u128(*val))))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.a64s_lo
+            .iter()
+            .zip(a64s_lo.iter())
+            .map(|(cell, val)| cell.assign(region, offset, Some(F::from_u128(*val))))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.a64s_hi
+            .iter()
+            .zip(a64s_hi.iter())
+            .map(|(cell, val)| cell.assign(region, offset, Some(F::from_u128(*val))))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.shf_div64
+            .assign(region, offset, Some(F::from(shf_div64 as u64)))?;
+        self.shf_mod64
+            .assign(region, offset, Some(F::from(shf_mod64 as u64)))?;
+        self.p_lo.assign(region, offset, Some(F::from_u128(p_lo)))?;
+        self.p_hi.assign(region, offset, Some(F::from_u128(p_hi)))?;
+        // ! ToDo: 添加p_top和is_neg
+        // * 只有value一个参数
+        // * p_top的类型是u128，所以用这个应该没问题
+        // * is_neg的类型是Bool（true或false，或者0或1），我不确定应该用哪个
+        self.p_top.assign(region, offset, Some(F::from_u128(p_top)))?;
+        self.is_neg
+            .assign(region, offset, 127.into(), u64::from(a.to_le_bytes()[31]).into())?;
+        // ! 到此结束
+        self.shf_lt256
+            .assign(region, offset, F::from_u128(shf_lt256))?;
+        self.shf_div64_eq0
+            .assign(region, offset, F::from(shf_div64 as u64))?;
+        self.shf_div64_eq1
+            .assign(region, offset, F::from(shf_div64 as u64), F::from(1))?;
+        self.shf_div64_eq2
+            .assign(region, offset, F::from(shf_div64 as u64), F::from(2))?;
+        self.a64s_lo_lt_p_lo
+            .iter()
+            .zip(a64s_lo.iter())
+            .map(|(lt, val)| lt.assign(region, offset, F::from_u128(*val), F::from_u128(p_lo)))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(())
     }
 }
