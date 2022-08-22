@@ -1899,3 +1899,8 @@ impl<F: Field> SarWordsGadget<F> {
         Ok(())
     }
 }
+
+#[inline]
+fn is_neg(x: &U256) -> bool {
+    127 < x.to_le_bytes()[31]
+}
