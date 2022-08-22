@@ -1886,8 +1886,6 @@ impl<F: Field> SarWordsGadget<F> {
         self.is_neg
             .assign(region, offset, 127.into(), u64::from(a.to_le_bytes()[31]).into())?;
         // ! 到此结束
-        self.shf_lt256
-            .assign(region, offset, F::from_u128(shf_lt256))?;
         self.shf_div64_eq0
             .assign(region, offset, F::from(shf_div64 as u64))?;
         self.shf_div64_eq1
