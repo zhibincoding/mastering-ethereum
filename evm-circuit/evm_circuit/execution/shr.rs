@@ -70,60 +70,66 @@ impl<F: Field> ExecutionGadget<F> for ShrGadget<F> {
   }
 }
 
+// ! 看起来主要是三部分的测试
 #[cfg(test)]
 mod test {
-  use crate::evm_circuit::test::rand_word;
-  use crate::test_util::run_test_circuits;
-  use eth_types::evm_types::OpcodeId;
-  use eth_types::{bytecode, Word};
-  use mock::TestContext;
-  use rand::Rng;
+    // * 导入的库
+    use crate::evm_circuit::test::rand_word;
+    use crate::test_util::run_test_circuits;
+    use eth_types::evm_types::OpcodeId;
+    use eth_types::{bytecode, Word};
+    use mock::TestContext;
+    use rand::Rng;
 
-  fn test_ok(opcode: OpcodeId, a: Word, shift: Word) {
-      let bytecode = bytecode! {
-          PUSH32(a)
-          PUSH32(shift)
-          #[start]
-          .write_op(opcode)
-          STOP
-      };
-      assert_eq!(
-          run_test_circuits(
-              TestContext::<2, 1>::simple_ctx_with_bytecode(bytecode).unwrap(),
-              None
-          ),
-          Ok(())
-      );
-  }
+    // * 主要的测试函数 -> 所有opcode都有一个test_ok
+    fn test_ok(opcode: OpcodeId, a: Word, shift: Word) {
+        let bytecode = bytecode! {
+            PUSH32(a)
+            PUSH32(shift)
+            #[start]
+            .write_op(opcode)
+            STOP
+        };
+        assert_eq!(
+            run_test_circuits(
+                TestContext::<2, 1>::simple_ctx_with_bytecode(bytecode).unwrap(),
+                None
+            ),
+            Ok(())
+        );
+    }
 
-  #[test]
-  fn shr_gadget_simple() {
-      test_ok(OpcodeId::SHR, 0xABCD.into(), 8.into());
-      test_ok(OpcodeId::SHR, 0x1234.into(), 7.into());
-      test_ok(OpcodeId::SHR, 0x8765.into(), 17.into());
-      test_ok(OpcodeId::SHR, 0x4321.into(), 0.into());
-      test_ok(OpcodeId::SHR, rand_word(), 127.into());
-      test_ok(OpcodeId::SHR, rand_word(), 129.into());
-      let rand_shift = rand::thread_rng().gen_range(0..=255);
-      test_ok(OpcodeId::SHR, rand_word(), rand_shift.into());
-  }
+    // * 正常bitwise shift的计算
+    #[test]
+    fn shr_gadget_simple() {
+        test_ok(OpcodeId::SHR, 0xABCD.into(), 8.into());
+        test_ok(OpcodeId::SHR, 0x1234.into(), 7.into());
+        test_ok(OpcodeId::SHR, 0x8765.into(), 17.into());
+        test_ok(OpcodeId::SHR, 0x4321.into(), 0.into());
+        test_ok(OpcodeId::SHR, rand_word(), 127.into());
+        test_ok(OpcodeId::SHR, rand_word(), 129.into());
+        let rand_shift = rand::thread_rng().gen_range(0..=255);
+        test_ok(OpcodeId::SHR, rand_word(), rand_shift.into());
+    }
 
-  #[test]
-  fn shr_gadget_rand_overflow_shift() {
-      test_ok(OpcodeId::SHR, rand_word(), 256.into());
-      test_ok(OpcodeId::SHR, rand_word(), 0x1234.into());
-      test_ok(
-          OpcodeId::SHR,
-          rand_word(),
-          Word::from_big_endian(&[255_u8; 32]),
-      );
-  }
+    // * 检测overflow shift
+    #[test]
+    fn shr_gadget_rand_overflow_shift() {
+        test_ok(OpcodeId::SHR, rand_word(), 256.into());
+        test_ok(OpcodeId::SHR, rand_word(), 0x1234.into());
+        test_ok(
+            OpcodeId::SHR,
+            rand_word(),
+            Word::from_big_endian(&[255_u8; 32]),
+        );
+    }
 
-  // This case validates if the split is correct.
-  #[test]
-  fn shr_gadget_constant_shift() {
-      let a = rand_word();
-      test_ok(OpcodeId::SHR, a, 8.into());
-      test_ok(OpcodeId::SHR, a, 64.into());
-  }
+    // * 检测U256的shift？
+    // This case validates if the split is correct.
+    #[test]
+    fn shr_gadget_constant_shift() {
+        let a = rand_word();
+        test_ok(OpcodeId::SHR, a, 8.into());
+        test_ok(OpcodeId::SHR, a, 64.into());
+    }
 }
