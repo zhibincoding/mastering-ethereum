@@ -1,6 +1,13 @@
 //! This module contains the CircuitInputBuilder, which is an object that takes
 //! types from geth / web3 and outputs the circuit inputs.
 
+// * geth生成的traces数据 -> 进入bus-mapping加工 -> 作为circuit input的输入
+// * 拿到Block构建相关数据 -> 对于这个Block里面的所有tx，构建tx相关的traces数据 -> BM在这里拿到trace里面的execSetp数据，进一步处理
+// * 我很好奇这里的setp是否与trace的相同：https://geth.ethereum.org/docs/rpc/ns-debug#step
+
+// * 把这些数据对应处理好之后（生成witness）-> 就可以输入到不同的circuit去了
+// * 这里面有一些evm circuit自己定义的数据结构，跟之前的EVM不太一样
+
 mod access;
 mod block;
 mod call;
@@ -22,17 +29,10 @@ pub use call::{Call, CallContext, CallKind};
 use core::fmt::Debug;
 use eth_types::{self, Address, GethExecStep, GethExecTrace, Word};
 use ethers_providers::JsonRpcClient;
-pub use execution::{CopyDetails, ExecState, ExecStep, StepAuxiliaryData};
+pub use execution::{CopyDataType, CopyEvent, CopyStep, ExecState, ExecStep, NumberOrHash};
 pub use input_state_ref::CircuitInputStateRef;
 use std::collections::HashMap;
 pub use transaction::{Transaction, TransactionContext};
-
-// * geth生成的traces数据 -> 进入bus-mapping加工 -> 作为circuit input的输入
-// * 拿到Block构建相关数据 -> 对于这个Block里面的所有tx，构建tx相关的traces数据 -> BM在这里拿到trace里面的execSetp数据，进一步处理
-// 我很好奇这里的setp是否与trace的相同：https://geth.ethereum.org/docs/rpc/ns-debug#step
-
-// 把这些数据对应处理好之后（生成witness）-> 就可以输入到不同的circuit去了
-// 这里面有一些evm circuit自己定义的数据结构，跟之前的EVM不太一样
 
 /// Builder to generate a complete circuit input from data gathered from a geth
 /// instance. This structure is the centre of the crate and is intended to be
@@ -40,11 +40,10 @@ pub use transaction::{Transaction, TransactionContext};
 /// steps:
 ///
 /// 1. Take a [`eth_types::Block`] to build the circuit input associated with
-/// the block. 
-/// 2. For each [`eth_types::Transaction`] in the block, take the
+/// the block. 2. For each [`eth_types::Transaction`] in the block, take the
 /// [`eth_types::GethExecTrace`] to build the circuit input associated with
 /// each transaction, and the bus-mapping operations associated with each
-/// `eth_types::GethExecStep`] in the [`eth_types::GethExecTrace`].
+/// [`eth_types::GethExecStep`] in the [`eth_types::GethExecTrace`].
 ///
 /// The generated bus-mapping operations are:
 /// [`StackOp`](crate::operation::StackOp)s,
@@ -53,16 +52,11 @@ pub use transaction::{Transaction, TransactionContext};
 /// [`OpcodeId`](crate::evm::OpcodeId)s used in each `ExecTrace` step so that
 /// the State Proof witnesses are already generated on a structured manner and
 /// ready to be added into the State circuit.
-
-
-// * 大概要输入的一些数据
 #[derive(Debug)]
 pub struct CircuitInputBuilder {
     /// StateDB key-value DB
-    /// * 貌似world state就存在这里面
     pub sdb: StateDB,
     /// Map of account codes by code hash
-    /// * 所有的bytecode和codehash等（contract account）
     pub code_db: CodeDB,
     /// Block
     pub block: Block,
@@ -78,7 +72,6 @@ impl<'a> CircuitInputBuilder {
             sdb,
             code_db,
             block,
-            // block的一些常量数据
             block_ctx: BlockContext::new(),
         }
     }
@@ -86,7 +79,6 @@ impl<'a> CircuitInputBuilder {
     /// Obtain a mutable reference to the state that the `CircuitInputBuilder`
     /// maintains, contextualized to a particular transaction and a
     /// particular execution step in that transaction.
-    // !这里的contextualized是什么意思？添加context的语境？
     pub fn state_ref(
         &'a mut self,
         tx: &'a mut Transaction,
@@ -121,7 +113,6 @@ impl<'a> CircuitInputBuilder {
             ),
         );
 
-        // * 把一个block里的所有transaction拿出来，形成[`eth_types::Transaction`]
         Transaction::new(call_id, &self.sdb, &mut self.code_db, eth_tx, is_success)
     }
 
@@ -130,7 +121,6 @@ impl<'a> CircuitInputBuilder {
     /// generate the RwCounterEndOfReversion operation in
     /// `gen_associated_ops` we don't know yet which value it will take,
     /// so we put a placeholder; so we do it here after the values are known.
-    // * 貌似会从CallContext中取值，后面填到table里，这里不够clear，还需要check一下
     pub fn set_value_ops_call_context_rwc_eor(&mut self) {
         for oper in self.block.container.call_context.iter_mut() {
             let op = oper.op_mut();
@@ -149,22 +139,15 @@ impl<'a> CircuitInputBuilder {
 
     /// Handle a block by handling each transaction to generate all the
     /// associated operations.
-    // * 处理一个block
     pub fn handle_block(
         &mut self,
         eth_block: &EthBlock,
         geth_traces: &[eth_types::GethExecTrace],
     ) -> Result<(), Error> {
         // accumulates gas across all txs in the block
-        let mut cumulative_gas_used = HashMap::new();
         for (tx_index, tx) in eth_block.transactions.iter().enumerate() {
             let geth_trace = &geth_traces[tx_index];
-            self.handle_tx(
-                tx,
-                geth_trace,
-                tx_index + 1 == eth_block.transactions.len(),
-                &mut cumulative_gas_used,
-            )?;
+            self.handle_tx(tx, geth_trace, tx_index + 1 == eth_block.transactions.len())?;
         }
         self.set_value_ops_call_context_rwc_eor();
         Ok(())
@@ -175,14 +158,11 @@ impl<'a> CircuitInputBuilder {
     /// `self.block.container`, and each step stores the
     /// [`OperationRef`](crate::exec_trace::OperationRef) to each of the
     /// generated operations.
-
-    // * 处理transaction相关对应的数据
     fn handle_tx(
         &mut self,
         eth_tx: &eth_types::Transaction,
         geth_trace: &GethExecTrace,
         is_last_tx: bool,
-        cumulative_gas_used: &mut HashMap<usize, u64>,
     ) -> Result<(), Error> {
         let mut tx = self.new_tx(eth_tx, !geth_trace.failed)?;
         let mut tx_ctx = TransactionContext::new(eth_tx, geth_trace, is_last_tx)?;
@@ -209,10 +189,7 @@ impl<'a> CircuitInputBuilder {
         // - execution_state: EndTx
         // - op: None
         // Generate EndTx step
-        let end_tx_step = gen_end_tx_ops(
-            &mut self.state_ref(&mut tx, &mut tx_ctx),
-            cumulative_gas_used,
-        )?;
+        let end_tx_step = gen_end_tx_ops(&mut self.state_ref(&mut tx, &mut tx_ctx))?;
         tx.steps_mut().push(end_tx_step);
 
         self.sdb.commit_tx();
@@ -223,10 +200,14 @@ impl<'a> CircuitInputBuilder {
 }
 
 /// Retrieve the init_code from memory for {CREATE, CREATE2}
-pub fn get_create_init_code(step: &GethExecStep) -> Result<&[u8], Error> {
+pub fn get_create_init_code<'a, 'b>(
+    call_ctx: &'a CallContext,
+    step: &'b GethExecStep,
+) -> Result<&'a [u8], Error> {
     let offset = step.stack.nth_last(1)?;
     let length = step.stack.nth_last(2)?;
-    Ok(&step.memory.0[offset.low_u64() as usize..(offset.low_u64() + length.low_u64()) as usize])
+    Ok(&call_ctx.memory.0
+        [offset.low_u64() as usize..(offset.low_u64() + length.low_u64()) as usize])
 }
 
 /// Retrieve the memory offset and length of call.
@@ -265,19 +246,17 @@ impl<P: JsonRpcClient> BuilderClient<P> {
     }
 
     /// Step 1. Query geth for Block, Txs and TxExecTraces
-    // * 从block里拿到所有的tx和traces数据
     pub async fn get_block(
         &self,
         block_num: u64,
     ) -> Result<(EthBlock, Vec<eth_types::GethExecTrace>), Error> {
         let eth_block = self.cli.get_block_by_number(block_num.into()).await?;
         let geth_traces = self.cli.trace_block_by_number(block_num.into()).await?;
+
         Ok((eth_block, geth_traces))
     }
 
     /// Step 2. Get State Accesses from TxExecTraces
-    // * state accesses在这里怎么理解？
-    // * 确定读写关系？开始操作state？
     pub fn get_state_accesses(
         &self,
         eth_block: &EthBlock,
@@ -301,8 +280,6 @@ impl<P: JsonRpcClient> BuilderClient<P> {
 
     /// Step 3. Query geth for all accounts, storage keys, and codes from
     /// Accesses
-    // * get proof 和 get code
-    // * code应该还是bytecode，不太清楚这里的proof是什么 
     pub async fn get_state(
         &self,
         block_num: u64,
@@ -383,12 +360,21 @@ impl<P: JsonRpcClient> BuilderClient<P> {
     }
 
     /// Perform all the steps to generate the circuit inputs
-    pub async fn gen_inputs(&self, block_num: u64) -> Result<CircuitInputBuilder, Error> {
+    pub async fn gen_inputs(
+        &self,
+        block_num: u64,
+    ) -> Result<
+        (
+            CircuitInputBuilder,
+            eth_types::Block<eth_types::Transaction>,
+        ),
+        Error,
+    > {
         let (eth_block, geth_traces) = self.get_block(block_num).await?;
         let access_set = self.get_state_accesses(&eth_block, &geth_traces)?;
         let (proofs, codes) = self.get_state(block_num, access_set).await?;
         let (state_db, code_db) = self.build_state_code_db(proofs, codes);
         let builder = self.gen_inputs_from_state(state_db, code_db, &eth_block, &geth_traces)?;
-        Ok(builder)
+        Ok((builder, eth_block))
     }
 }
