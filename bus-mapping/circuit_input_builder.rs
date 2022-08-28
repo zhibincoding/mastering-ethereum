@@ -139,14 +139,23 @@ impl<'a> CircuitInputBuilder {
 
     /// Handle a block by handling each transaction to generate all the
     /// associated operations.
+    // ! 这里就是circuitInputBuilder的一些处理逻辑
+    // * 通过处理一个block里面的所有transaction（这里的最小单位应该是trace？） -> 来生成（generate）所有与之相关的操作
     pub fn handle_block(
         &mut self,
+        // * 这里传入的block数据，完全是在`ethers-core`中定义的
+        // * 所以就是layer1中block完整的数据（在geth的vm模块中定义）
         eth_block: &EthBlock,
+        // * 在这里的geth trace相当于，用debug_trace Call发送出去以后，返回的trace信息
+        // * 与`go-ethereum/internal/ethapi/api.go`中的`ExecutionResult`相对应
         geth_traces: &[eth_types::GethExecTrace],
     ) -> Result<(), Error> {
         // accumulates gas across all txs in the block
+        // * 把一个block的所有transaction都拿出来 -> 分为index和tx data（第一笔交易的序号，以及第一笔tx的详细数据）
         for (tx_index, tx) in eth_block.transactions.iter().enumerate() {
+            // * 拿到每一个index（就是tx的序号）的trace数据
             let geth_trace = &geth_traces[tx_index];
+            // * 再调用handle_tx()函数，把tx相关的数据传入进去，它们再来生成相关的操作
             self.handle_tx(tx, geth_trace, tx_index + 1 == eth_block.transactions.len())?;
         }
         self.set_value_ops_call_context_rwc_eor();
