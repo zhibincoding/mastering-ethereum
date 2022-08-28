@@ -33,9 +33,19 @@ impl Default for BytecodeTestConfig {
     }
 }
 
+// * `NACC`和`NTX`类似于范型，但是有具体的类型（usize），参考 https://www.runoob.com/rust/rust-generics.html
+// * 范型是fn run_test_circuits<T>
+
+// * 把NACC和NTX这两个东西传入给TestContext -> 都是usize类型（所以NACC和NTX的作用是什么，只是一个命名的作用吗）
+// * 也就是说，抛开命名的效果，TestContext<NACC, NTX> = TestContext<usize, usize>
 pub fn run_test_circuits<const NACC: usize, const NTX: usize>(
-    test_ctx: TestContext<NACC, NTX>,
-    config: Option<BytecodeTestConfig>,
+  // ! test_ctx中包含的信息量比较大 -> 比如chain Id、account list、history hashes（一个vector，存储最近256个blocks的hash）、geth里面跑出来的block、geth里面跑出来的trace
+  // * 所以我猜跑测试的时候，我们传入了一个模拟的block和trace环境（提供了circuit用来证明所需要的上下文）
+  test_ctx: TestContext<NACC, NTX>,
+  // ! 这东西是一个Option<T> -> 也就是要不然返回Some<T>，要不然返回None（就是一个范型）
+  // * 这里的T是`BytecodeTestConfig`，是一个struct类型，理解成跟上面一样的东西就行（一般我们跑测试的时候貌似这个参数是None）
+  // * 这里传入的是一些config，比如是否开启evm circuit & state circuit的测试，还有配置的gas-limit等
+  config: Option<BytecodeTestConfig>,
 ) -> Result<(), Vec<VerifyFailure>> {
     let block: GethData = test_ctx.into();
     let mut builder = BlockData::new_from_geth_data(block.clone()).new_circuit_input_builder();
