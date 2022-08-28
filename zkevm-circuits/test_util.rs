@@ -47,6 +47,8 @@ pub fn run_test_circuits<const NACC: usize, const NTX: usize>(
   // * 这里传入的是一些config，比如是否开启evm circuit & state circuit的测试，还有配置的gas-limit等
   config: Option<BytecodeTestConfig>,
 ) -> Result<(), Vec<VerifyFailure>> {
+    // * 初始化一些testContext数据 -> ChainId、HistoryHashes、Block data、Trace data、AccountList
+    // * 这些数据也被称为GethData -> Block和Trace就是circuit input的主要内容
     let block: GethData = test_ctx.into();
     let mut builder = BlockData::new_from_geth_data(block.clone()).new_circuit_input_builder();
     builder
