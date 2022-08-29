@@ -82,12 +82,18 @@ mod test {
     use rand::Rng;
 
     // * 主要的测试函数 -> 所有opcode都有一个test_ok
+    // * 模拟在真实EVM执行环境下的opcode操作
     fn test_ok(opcode: OpcodeId, a: Word, shift: Word) {
         let bytecode = bytecode! {
+            // * a和shift的类型都是EVM Word
+            // * 分别PUSH进去`a`和`shift`
             PUSH32(a)
             PUSH32(shift)
+            // * 准备执行
             #[start]
+            // * 执行某一个Opcode -> 在这里是SHR或者SAR
             .write_op(opcode)
+            // * 停止执行
             STOP
         };
         assert_eq!(
