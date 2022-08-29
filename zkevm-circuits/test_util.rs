@@ -47,19 +47,26 @@ pub fn run_test_circuits<const NACC: usize, const NTX: usize>(
   // * 这里传入的是一些config，比如是否开启evm circuit & state circuit的测试，还有配置的gas-limit等
   config: Option<BytecodeTestConfig>,
 ) -> Result<(), Vec<VerifyFailure>> {
-    // * 初始化一些testContext数据 -> ChainId、HistoryHashes、Block data、Trace data、AccountList
-    // * 这些数据也被称为GethData -> Block和Trace就是circuit input的主要内容
-    let block: GethData = test_ctx.into();
-    let mut builder = BlockData::new_from_geth_data(block.clone()).new_circuit_input_builder();
-    builder
-        .handle_block(&block.eth_block, &block.geth_traces)
-        .unwrap();
+  // * 初始化一些testContext数据 -> ChainId、HistoryHashes、Block data、Trace data、AccountList
+  // * 这些数据也被称为GethData -> Block和Trace就是circuit input的主要内容
+  let block: GethData = test_ctx.into();
+  // ! 返回一个新的CircuitInputBuilder对象
+  // * 1）new函数 -> 返回一个新的CircuitInputBuilder对象（sdb、codeDB、block）
+  // *              传入一个完整的block数据，取出其中的内容，构造一个新的builder
+  // * 2）new_from_geth_data函数 -> 通过geth返回block数据，生成一个新的block
+  let mut builder = BlockData::new_from_geth_data(block.clone()).new_circuit_input_builder();
+  builder
+      // * 这里貌似会把数据传进去处理一遍 -> 应该是通过Bus-Mapping把数据处理成我们需要的形式
+      .handle_block(&block.eth_block, &block.geth_traces)
+      .unwrap();
 
-    // build a witness block from trace result
-    let block = crate::evm_circuit::witness::block_convert(&builder.block, &builder.code_db);
+  // build a witness block from trace result
+  // * 再把处理后的数据转换成witness形式
+  let block = crate::evm_circuit::witness::block_convert(&builder.block, &builder.code_db);
 
-    // finish required tests according to config using this witness block
-    test_circuits_using_witness_block(block, config.unwrap_or_default())
+  // finish required tests according to config using this witness block
+  // * witness配合设置好的config，进行circuit test
+  test_circuits_using_witness_block(block, config.unwrap_or_default())
 }
 
 pub fn test_circuits_using_witness_block(
