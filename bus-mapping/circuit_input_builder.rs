@@ -167,10 +167,21 @@ impl<'a> CircuitInputBuilder {
     /// `self.block.container`, and each step stores the
     /// [`OperationRef`](crate::exec_trace::OperationRef) to each of the
     /// generated operations.
+
+    // ! 根据一笔transaction，以及相对应的execution trace，生成与此相关的所有操作
+    // * 之前的block也是类似的逻辑，但只是把一个block的所有tx抽出来，再传入这个函数
+
+    // * 每个操作都会注册（register）为一个`self.block.container`
+    // * 每一步（step）都会存储在OperationRef里 -> crate::exec_trace::OperationRef（这里面貌似会存储所有相关操作，是个新东西，拆开看一看）
     fn handle_tx(
         &mut self,
+        // * 这里是非常详细的transaction数据结构，在ethers-core中定义的
+        // * 应该是完全兼容layer1 geth的数据结构
         eth_tx: &eth_types::Transaction,
+        // * 这里在定义上是`debug_trace` RPC 出来的所有详细数据 -> 对应的是ExecutionResult字段内容
+        // * 使用L2 Geth的`debug_getBlockResultByHash`就可以拿到详细的ExecutionResult字段内容
         geth_trace: &GethExecTrace,
+        // * 判断这笔交易是不是一个block最后一步交易
         is_last_tx: bool,
     ) -> Result<(), Error> {
         let mut tx = self.new_tx(eth_tx, !geth_trace.failed)?;
