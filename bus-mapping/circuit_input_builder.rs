@@ -184,21 +184,29 @@ impl<'a> CircuitInputBuilder {
         // * 判断这笔交易是不是一个block最后一步交易
         is_last_tx: bool,
     ) -> Result<(), Error> {
+        // * 这个tx有点像一个新的tx实例 -> 传入ethers-core的tx类型，还有交易是否失败的bool判断值
         let mut tx = self.new_tx(eth_tx, !geth_trace.failed)?;
+        // * 传入所有参数，生成一个txContext实例
         let mut tx_ctx = TransactionContext::new(eth_tx, geth_trace, is_last_tx)?;
 
         // TODO: Move into gen_associated_steps with
         // - execution_state: BeginTx
         // - op: None
         // Generate BeginTx step
+        // * 参考zkevm-doc：https://privacy-scaling-explorations.github.io/zkevm-docs/architecture/evm-circuit.html
+        // * 生成一个BeginTx step -> 包含很多context信息
         let begin_tx_step = gen_begin_tx_ops(&mut self.state_ref(&mut tx, &mut tx_ctx))?;
         tx.steps_mut().push(begin_tx_step);
 
+        // ! 非常核心的处理逻辑 -> 拿到ExecutionResult里面每一步的数据（pc/op/gas/gasCost/refund/depth/error, stack/memory/storage）
         for (index, geth_step) in geth_trace.struct_logs.iter().enumerate() {
             let mut state_ref = self.state_ref(&mut tx, &mut tx_ctx);
+            // * 这里mapping的是index和opcode -> 还有很多其他数据，比如pc/op/gas/depth等
             log::trace!("handle {}th opcode {:?} ", index, geth_step.op);
             let exec_steps = gen_associated_ops(
                 &geth_step.op,
+                // * 还需要对OperationRef这东西比较了解
+                // * state_ref里面有不少信息，比如codeDB等，有code和没code的操作处理起来是不一样的
                 &mut state_ref,
                 &geth_trace.struct_logs[index..],
             )?;
@@ -209,6 +217,7 @@ impl<'a> CircuitInputBuilder {
         // - execution_state: EndTx
         // - op: None
         // Generate EndTx step
+        // * 生成EndTx step
         let end_tx_step = gen_end_tx_ops(&mut self.state_ref(&mut tx, &mut tx_ctx))?;
         tx.steps_mut().push(end_tx_step);
 
