@@ -143,6 +143,7 @@ mod test {
 
     // * 检测U256的shift？
     // This case validates if the split is correct.
+    // * 用于验证split是否正确（how?）
     #[test]
     fn shr_gadget_constant_shift() {
         let a = rand_word();
