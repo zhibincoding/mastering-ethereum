@@ -124,14 +124,19 @@ mod test {
         test_ok(OpcodeId::SHR, rand_word(), rand_shift.into());
     }
 
-    // * 检测overflow shift
     #[test]
+    // * 测试能否检测出overflow，lisp的comment也提到了这一点
     fn shr_gadget_rand_overflow_shift() {
+        // * 256已经overflow
+        // * 0x1234如果变成decimal是一个非常大的数（大概4660）
         test_ok(OpcodeId::SHR, rand_word(), 256.into());
         test_ok(OpcodeId::SHR, rand_word(), 0x1234.into());
         test_ok(
             OpcodeId::SHR,
             rand_word(),
+            // * from_big_endian貌似是对256-bit对unsigned value的转换
+            // * SAR中a和b是signed value，shift不是（只是移动的范围，不需要有符号）
+            // * 这段我们直接照着写，应该就可以
             Word::from_big_endian(&[255_u8; 32]),
         );
     }
