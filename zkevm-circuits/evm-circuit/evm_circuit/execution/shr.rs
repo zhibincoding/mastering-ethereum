@@ -105,15 +105,21 @@ mod test {
         );
     }
 
-    // * 正常bitwise shift的计算
     #[test]
     fn shr_gadget_simple() {
+        // * 一共只需要传入三个参数 -> opcodeID, a, shift
+        // * 这里所有的0x前缀，都是hex数据
+        // * into()函数应该是把所有i32格式的数据，转换成U256 -> 因为EVM word就是u256
         test_ok(OpcodeId::SHR, 0xABCD.into(), 8.into());
         test_ok(OpcodeId::SHR, 0x1234.into(), 7.into());
         test_ok(OpcodeId::SHR, 0x8765.into(), 17.into());
         test_ok(OpcodeId::SHR, 0x4321.into(), 0.into());
+        // * 这里是拿到一个EVM word（U256类型，目测是一个256-bit数据）
+        // * rand_word()函数会用到`Rng`，所以需要一开始就导入scope内
         test_ok(OpcodeId::SHR, rand_word(), 127.into());
         test_ok(OpcodeId::SHR, rand_word(), 129.into());
+        // * 给我的感觉，这里给了一个range范围，然后把所有值都用来shift算一遍 -> 直接给了一个最大的有效范围，从0到255
+        // * 把一个EVM word从0到255，都shift一遍
         let rand_shift = rand::thread_rng().gen_range(0..=255);
         test_ok(OpcodeId::SHR, rand_word(), rand_shift.into());
     }
