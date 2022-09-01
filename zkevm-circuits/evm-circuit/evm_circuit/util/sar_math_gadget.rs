@@ -1904,5 +1904,7 @@ impl<F: Field> SarWordsGadget<F> {
 
 #[inline]
 fn is_neg(x: &U256) -> bool {
+    // * 符号位1是负数，符号位0是正数 -> binary
+    // * x[31]就是拿到最后一个byte，如果这个byte比127大，就说明是负数
     127 < x.to_le_bytes()[31]
 }
