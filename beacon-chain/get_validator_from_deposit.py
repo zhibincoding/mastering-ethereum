@@ -1,3 +1,4 @@
+# beacon chain spec -> validator deposit contract (EIP-2982)
 def get_validator_from_deposit(state: BeaconState, deposit: Deposit) -> Validator:
     amount = deposit.data.amount
     effective_balance = min(amount - amount % EFFECTIVE_BALANCE_INCREMENT, MAX_EFFECTIVE_BALANCE)
