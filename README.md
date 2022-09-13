@@ -18,11 +18,7 @@
   </p>
 </div>
 
-## Ethereum Article
-
 ## Ethereum Threads
-
-## zkEVM Threads
 
 ### CN
 
