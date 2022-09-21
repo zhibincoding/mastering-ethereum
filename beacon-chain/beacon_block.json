@@ -103,6 +103,7 @@
             }
           }
         ],
+        // * 每个proof对应一笔deposit，根据state.eth1_data计算（完整merkle tree）
         "deposits": [
           {
             "proof": [
@@ -147,6 +148,7 @@
             }
           }
         ],
+        // * 自愿退出
         "voluntary_exits": [
           {
             "message": {
