@@ -15,8 +15,10 @@
           "block_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2"
         },
         "graffiti": "0x82fD1F4a18Df2dF2A3Af6842Bb1049A0F3783EeD5ABfBdbaEdBeAcfc4AC5baAA",
+        // * 这里应该是举报人奖励（whistleblower）
         "proposer_slashings": [
           {
+            // * 正常来说，这里返回的应该是被举报的proposer和attester
             "signed_header_1": {
               "message": {
                 "slot": "1",
@@ -81,6 +83,7 @@
             }
           }
         ],
+        // * 收集这个epoch里，之前所有没有上链的attestations，把它们打包聚合进来
         "attestations": [
           {
             "aggregation_bits": "0x01",
