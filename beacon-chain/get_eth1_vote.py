@@ -1,3 +1,16 @@
+def compute_time_at_slot(state: BeaconState, slot: Slot) -> uint64:
+    return uint64(state.genesis_time + slot * SECONDS_PER_SLOT)
+
+def voting_period_start_time(state: BeaconState) -> uint64:
+    eth1_voting_period_start_slot = Slot(state.slot - state.slot % (EPOCHS_PER_ETH1_VOTING_PERIOD * SLOTS_PER_EPOCH))
+    return compute_time_at_slot(state, eth1_voting_period_start_slot)
+
+def is_candidate_block(block: Eth1Block, period_start: uint64) -> bool:
+    return (
+        block.timestamp + SECONDS_PER_ETH1_BLOCK * ETH1_FOLLOW_DISTANCE <= period_start
+        and block.timestamp + SECONDS_PER_ETH1_BLOCK * ETH1_FOLLOW_DISTANCE * 2 >= period_start
+    )
+
 def get_eth1_vote(state: BeaconState, eth1_chain: Sequence[Eth1Block]) -> Eth1Data:
     period_start = voting_period_start_time(state)
     # `eth1_chain` abstractly represents all blocks in the eth1 chain sorted by ascending block height
