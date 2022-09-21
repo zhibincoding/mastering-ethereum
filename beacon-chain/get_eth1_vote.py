@@ -13,17 +13,24 @@ def is_candidate_block(block: Eth1Block, period_start: uint64) -> bool:
 
 def get_eth1_vote(state: BeaconState, eth1_chain: Sequence[Eth1Block]) -> Eth1Data:
     period_start = voting_period_start_time(state)
+    # * eth1 chain貌似表示主链中的所有blocks，按区块高度，升序排序 -> 最上面的是最新的
     # `eth1_chain` abstractly represents all blocks in the eth1 chain sorted by ascending block height
     votes_to_consider = [
+        # * 从eth1 chain中取出对应的block
         get_eth1_data(block) for block in eth1_chain
         if (
+            # * 找到candidate block（这是什么东西）
+            # ! 我觉得这里应该是递归，从上往下，找到最近的一个标准block（有可能是被finalized的block）
             is_candidate_block(block, period_start)
             # Ensure cannot move back to earlier deposit contract states
+            # * get_eth1_data函数，输入一个eth1 block，返回对应的eth1 data
+            # * 说明deposit count顺序正确，递增
             and get_eth1_data(block).deposit_count >= state.eth1_data.deposit_count
         )
     ]
 
     # Valid votes already cast during this period
+    # * 有效投票数
     valid_votes = [vote for vote in state.eth1_data_votes if vote in votes_to_consider]
 
     # Default vote on latest eth1 block data in the period range unless eth1 chain is not live
